@@ -1,0 +1,22 @@
+# Probe output may include local machine paths; review/sanitize before committing.
+reports/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets / local config
+.env
+.env.*
+*.local.json
