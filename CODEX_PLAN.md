@@ -1,77 +1,64 @@
 # Codex Plan: MiniQMT Python API capability validation
 
-## Mission
+## Goal
 
-在 MiniQMT 已启动并登录的 Windows 本机，用 `qmt_api_probe.py` 实测 `xtquant.xtdata`，回答：
+在 MiniQMT 已启动并登录的 Windows 本机，用 `qmt_api_probe_minimal.py` 验证 `xtquant.xtdata` 数据能力。
 
-1. Python 是否能连接 MiniQMT？
-2. 当前环境有哪些数据类别可调用？
-3. 每类数据是否能成功取得至少 1 笔有效样本？
+本任务只回答一个问题：**每类数据是否至少能成功取得 1 个有效样本？**
 
-最终目标是建立“数据类别是否可行”的能力矩阵，**不是下载完整数据集、验证数据完整性、做性能压测或批量采集。**
+不是数据采集任务，不检查全历史完整性，不批量下载，不做性能压测。
 
-## 核心测试原则：每类数据只测试 1 笔
+## Highest-priority rule: one sample per category
 
-这是本任务的最高优先级约束：
+- 每一种数据类别只测试 **1 笔 / 1 行 / 1 根K线 / 1 个对象 / 1 次成功订阅**。
+- 支持 `count` 的读取统一使用 `count=1`。
+- 一旦取得 1 个有效样本并标记 `PASS`，立即停止该类别继续取数。
+- 若必须补充本地历史数据，只下载支撑最小验证所需的小窗口，然后读取 1 笔。
+- 实时行情只测试 1 个标的；订阅成功后立即取消。
+- 不扫描全市场，不批量下载，不长期订阅，不保存大量逐笔数据。
 
-- 每一种数据类别，只需要取得 **1 笔 / 1 行 / 1 个有效对象 / 1 次成功订阅** 即可证明该类数据“可行”。
-- 历史行情调用统一优先使用 `count=1`；不要为了测试能力而下载大段历史数据。
-- 实时行情只读取 1 个标的的 1 次快照；订阅接口只需证明订阅成功，随后立即取消订阅。
-- 财务数据每张需要验证的表只需取得 1 条有效记录。
-- 板块、交易日历、合约信息、ETF、IPO、可转债、期权、期货等，只需取得 1 个有效返回样本。
-- Level 2 每一种类别只取 1 笔数据即可；不要持续订阅或保存大量逐笔数据。
-- 投研/特色数据同样遵守“一类一笔”。先确认 period/接口存在，再用合适标的取 1 个有效样本。
-- 若某接口必须先下载本地数据，只下载能够支撑 1 笔验证结果的最小数据范围。
-- 不做全市场扫描、不做全品种批量下载、不做长时间实时监听、不做吞吐量/延迟性能测试。
+## Safety
 
-### PASS 的定义
+- 只测试 `xtquant.xtdata`，不测试下单、撤单或其他交易写操作。
+- 不提交账号、密码、token、MiniQMT 私有配置、DLL、vendor `xtquant` 包或未经去敏的本机报告。
+- 不使用 GitHub Actions 测 MiniQMT，本任务必须在 MiniQMT 所在机器执行。
 
-满足以下任意一种即可：
-
-- API 返回至少 1 条有效数据；
-- API 返回至少 1 个有效对象/字典；
-- 列表类 API 返回至少 1 个有效元素；
-- 实时订阅返回有效订阅号；
-- 下载接口成功完成，且后续读取至少 1 条有效数据。
-
-一旦某数据类别达到 PASS，**立即停止继续获取该类别更多数据。**
-
-## 安全与范围约束
-
-- MiniQMT 必须运行并已登录。
-- 不使用 GitHub Actions 验证 MiniQMT；云端 runner 无法访问本机客户端。
-- 只测试 `xtquant.xtdata` 数据能力，不执行下单、撤单或任何交易写操作。
-- 不提交账号、资金账号、密码、token、本机 MiniQMT 私有配置、DLL 或迅投 `xtquant` 包本体。
-- 原始 `reports/` 默认不提交；只把去敏后的能力结论更新到 `CAPABILITY_MATRIX.md`。
-
-## Phase 0 — 静态验证
+## Step 1 — Static check
 
 ```powershell
-python -m py_compile qmt_api_probe.py
-python qmt_api_probe.py --help
+python -m py_compile qmt_api_probe_minimal.py
+python qmt_api_probe_minimal.py --help
 ```
 
-如果脚本中用于能力验证的数据读取仍使用 `count=5`、`count=10` 等，应先改为 `count=1`，除非接口本身不支持该参数。
-
-## Phase 1 — Python / MiniQMT 连接
+## Step 2 — Basic connection and read-only capability probe
 
 ```powershell
-python qmt_api_probe.py
+python qmt_api_probe_minimal.py
 ```
 
-验证：
+至少确认：
 
-- `import xtquant.xtdata`
-- `get_instrument_detail("000001.SZ")` 返回 1 个有效对象
-- `get_period_list()` 返回非空结果
+- `import xtquant.xtdata` 可用
+- `get_instrument_detail("000001.SZ")` 返回有效对象
+- `get_period_list()` 返回运行时数据类型/周期清单
 
-只要基础链路成功即可，不做重复连接压力测试。
+如果基础连接失败，先解决连接，不对其他类别下结论。
 
-## Phase 2 — 数据类别最小可行性测试
+## Step 3 — Minimal supplement only when needed
 
-### L1 历史行情
+若历史/财务/板块数据因本地缓存不足而为空，再运行：
 
-对每种需要验证的周期只取 1 根/1 笔：
+```powershell
+python qmt_api_probe_minimal.py --download
+```
+
+`--download` 仍然只是为了让后续 **1 笔** 读取成功，不代表要下载完整历史。
+
+## Data categories to verify
+
+### L1 market data
+
+每个周期最多取 1 笔：
 
 - tick
 - 1m
@@ -86,61 +73,56 @@ python qmt_api_probe.py
 - 1hy
 - 1y
 
-首选：
+有 1 笔有效数据即 `PASS`。
 
-```python
-count=1
-```
+### Realtime
 
-若本地历史缓存为空，再执行最小 `download_history_data()` 补充，然后只读取 1 条验证。
+只使用 1 个股票代码：
 
-### 实时行情
+- `get_full_tick`：1 个快照
+- `get_full_kline`：1 根
+- `subscribe_quote`：1 个有效订阅号，随后立即取消
 
-只测试 1 个标的：
+休市时没有更新 callback 不视为失败。
 
-- `get_full_tick(["000001.SZ"])`：取得 1 个快照即可 PASS。
-- `get_full_kline(..., count=1)`：取得 1 根即可 PASS。
-- `subscribe_quote()`：获得有效订阅号即证明请求可行，随后立即 `unsubscribe_quote()`。
+### Reference / metadata
 
-非交易时间没有新 callback 不视为权限失败。
+每类只确认 1 个有效返回：
 
-### 基础/参考数据
-
-每类只取 1 个有效返回：
-
-- 股票/合约信息
-- 板块列表
-- 板块成分
-- 节假日
-- 交易日历/交易日期
-- 除权除息因子
+- instrument detail
+- sector list
+- sector constituent
+- holiday
+- trading calendar / trading date
+- dividend factor
 - IPO
-- ETF 信息
+- ETF
 
-### 财务数据
+### Financial
 
-对需要验证的表分别只确认存在至少 1 条有效记录：
+每张表只验证 1 条：
 
 - Balance
 - Income
 - CashFlow
 - Pershareindex
 
-如果需要 `download_financial_data()`，仅补充最小测试标的数据；不要批量下载全市场财务数据。
+### Convertible bond / option / future
 
-### 可转债 / 期权 / 期货
+分别使用 1 个当前有效代表合约：
 
-使用当前有效的 1 个代表合约即可：
+```powershell
+python qmt_api_probe_minimal.py --download `
+  --cb <一个当前可转债代码> `
+  --option-code <一个当前有效期权> `
+  --future-code <一个当前有效期货>
+```
 
-- 可转债：1 个代码、1 个有效返回
-- 期权：1 个当前有效合约、1 条数据
-- 期货：1 个当前有效合约、1 条数据
-
-不要为了覆盖品种而扫描全部合约。
+每个类别 1 个有效样本即可。
 
 ### Level 2
 
-分别验证：
+每类只取 1 笔：
 
 - l2quote
 - l2quoteaux
@@ -148,31 +130,29 @@ count=1
 - l2transaction
 - l2orderqueue
 
-每类只需要 1 笔有效数据即可 PASS。调用时使用最小 `count=1`（若该接口支持）。
+判断：
 
-判断规则：
+- 1 笔有效数据 → `PASS`
+- 明确权限/VIP错误 → `NO_PERMISSION`
+- API/period不存在 → `UNSUPPORTED`
+- 休市时为空 → `EMPTY`，结论暂不确定；交易时段只复测到拿到 1 笔或得到明确权限结论为止
 
-- 有 1 笔有效数据 → `PASS`
-- 明确权限/授权/VIP 错误 → `NO_PERMISSION`
-- API/period 不存在 → `UNSUPPORTED`
-- 休市时调用成功但为空 → `EMPTY`，结论暂不确定；交易时段只复测到取得 1 笔或确认权限错误为止
+### Special / research data
 
-### 投研/特色数据
+先以 `get_period_list()` 实际发现的 period 为准。
 
-以 `get_period_list()` 的实际返回为入口。对每一种准备验证的特色类别：
+对准备验证的每个特色类别：
 
-1. 找到一个 schema 匹配的代表标的；
+1. 确认正确 schema/市场/代表标的；
 2. 请求最小样本；
-3. 得到 1 笔有效数据即 PASS；
-4. 立即停止该类别的进一步采集。
+3. 取得 1 笔即 `PASS`；
+4. 立即停止该类别继续取数。
 
-不要用错误品种代码测试后就判断“不支持”。
+不要拿普通 A 股代码盲测期货仓单等不匹配数据后宣布“不支持”。
 
-## Phase 3 — 结果矩阵
+## Result status
 
-更新 `CAPABILITY_MATRIX.md`。每类只记录是否可行，不要求记录大量样本。
-
-状态限定为：
+只使用：
 
 - `PASS`
 - `EMPTY`
@@ -182,43 +162,39 @@ count=1
 - `SKIP`
 - `NOT_TESTED`
 
-每项至少记录：
+## Capability matrix
+
+根据实机结果更新 `CAPABILITY_MATRIX.md`。每项只需记录：
 
 - 数据类别
 - API / period
-- 测试标的
+- 代表标的
 - 状态
-- 1 笔样本是否成功
-- 是否需要下载
-- 是否要求交易时段/特殊权限
+- 是否成功取得 1 个样本
+- 是否需要最小下载
+- 是否要求交易时段/权限
 - 简短证据或错误信息
 
-**不要把获取了多少行作为测试成绩；一旦有 1 条有效数据，能力验证即完成。**
+**不要把返回行数、下载量或覆盖年限作为测试成绩。一类数据只要拿到 1 个有效样本，可行性验证就完成。**
 
 ## Final acceptance
 
-最终需要明确回答：
+最终报告必须能回答：
 
 1. Python → xtquant → MiniQMT 是否连通？
-2. 每一类 L1 行情是否能取得 1 笔？
+2. 每个 L1 周期是否能取 1 笔？
 3. 实时快照/订阅是否可行？
-4. 基础信息、日历、板块、除权、IPO、ETF 是否各能取得 1 个样本？
-5. 财务表是否各能取得至少 1 条？
-6. 可转债、期权、期货是否各完成 1 个代表样本测试？
-7. Level 2 每类是否能取得 1 笔，或明确属于无权限/不支持？
-8. 特色数据中哪些已通过 1 笔样本证明可行？
+4. 基础信息/日历/板块/除权/IPO/ETF 是否各能取 1 个样本？
+5. 四类财务表是否各能取 1 条？
+6. 可转债/期权/期货是否各用 1 个代表合约验证？
+7. Level 2 每类是否能取 1 笔，或明确是无权限/不支持？
+8. 特色数据哪些已经用 1 个正确样本证明可行？
 
 提交前：
 
 ```powershell
-python -m py_compile qmt_api_probe.py
+python -m py_compile qmt_api_probe_minimal.py
 git diff --check
 ```
 
-最终提交主要包含：
-
-- 必要的测试脚本修改（尤其确保 `count=1`）
-- 更新后的 `CAPABILITY_MATRIX.md`
-- 必要的文档说明
-
-测试目的始终是 **feasibility / capability check（可行性验证）**，不是数据采集任务。
+最终提交主要包含更新后的 `CAPABILITY_MATRIX.md` 和必要的探测脚本修复；原始 `reports/` 默认不提交。
