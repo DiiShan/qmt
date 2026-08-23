@@ -11,6 +11,7 @@ from qmt_local_data.transforms import (
     assign_financial_availability,
     build_historical_universe,
     normalize_market_data,
+    normalize_instrument_details,
     normalize_trading_dates,
 )
 
@@ -54,6 +55,21 @@ def test_normalize_future_accepts_xtquant_settlement_typo() -> None:
     }
     frame = normalize_market_data(raw, "future")
     assert frame.iloc[0]["settlement"] == 4003
+
+
+def test_security_master_ignores_xtquant_invalid_expiry_sentinel() -> None:
+    frame = normalize_instrument_details(
+        {
+            "688001.SH": {
+                "InstrumentName": "sample",
+                "OpenDate": "20190722",
+                "ExpireDate": "10011011",
+            }
+        }
+    )
+    assert frame.iloc[0]["list_date"] == date(2019, 7, 22)
+    assert pd.isna(frame.iloc[0]["delist_date"])
+    assert frame.iloc[0]["delist_date_quality"] == "INVALID_SENTINEL_IGNORED"
 
 
 def test_quality_gate_blocks_duplicate_and_invalid_ohlc() -> None:

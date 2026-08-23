@@ -78,6 +78,17 @@ def validate_security_master(frame: pd.DataFrame) -> QualityReport:
     ).sum()
     if invalid:
         report.issues.append(QualityIssue("ERROR", "listing_interval", int(invalid), "delist_date before list_date"))
+    if "delist_date_quality" in frame.columns:
+        ignored = frame["delist_date_quality"].eq("INVALID_SENTINEL_IGNORED").sum()
+        if ignored:
+            report.issues.append(
+                QualityIssue(
+                    "WARN",
+                    "invalid_delist_sentinel_ignored",
+                    int(ignored),
+                    "Upstream expiry predates listing and was retained only as a quality flag",
+                )
+            )
     return report
 
 

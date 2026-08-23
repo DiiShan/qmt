@@ -127,6 +127,15 @@ def normalize_instrument_details(details: dict[str, dict[str, Any]], asset: str 
                 }
             )
         else:
+            list_date = _parse_detail_date(detail.get("OpenDate") or detail.get("CreateDate"))
+            delist_date = _parse_detail_date(detail.get("ExpireDate") or detail.get("DelistDate"))
+            if delist_date is not None and list_date is not None and delist_date < list_date:
+                delist_date = None
+                delist_quality = "INVALID_SENTINEL_IGNORED"
+            elif delist_date is None:
+                delist_quality = "MISSING_OR_ACTIVE"
+            else:
+                delist_quality = "SOURCE"
             rows.append(
                 {
                     "stock_code": code,
@@ -134,8 +143,9 @@ def normalize_instrument_details(details: dict[str, dict[str, Any]], asset: str 
                     "exchange": code.rsplit(".", 1)[-1],
                     "security_type": str(detail.get("InstrumentType") or detail.get("ProductID") or "STOCK"),
                     "board": str(detail.get("Board") or "UNKNOWN"),
-                    "list_date": _parse_detail_date(detail.get("OpenDate") or detail.get("CreateDate")),
-                    "delist_date": _parse_detail_date(detail.get("ExpireDate") or detail.get("DelistDate")),
+                    "list_date": list_date,
+                    "delist_date": delist_date,
+                    "delist_date_quality": delist_quality,
                 }
             )
     return pd.DataFrame(rows)

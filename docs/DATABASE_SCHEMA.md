@@ -15,6 +15,10 @@
 
 每个 Processed/Derived row 还包含 `source_run_id` 与 `_ingested_at`。DuckDB view 按业务主键选择最新已发布版本；物理 Parquet run 不原地修改。
 
+`security_master.delist_date_quality` 记录退市日来源质量。若 XtData 返回早于上市日的哨兵值，
+标准化层不会把它解释为真实退市日，而是令 `delist_date=NULL` 并标记
+`INVALID_SENTINEL_IGNORED`。
+
 ## 财务 PIT
 
 财务数据至少包含：
