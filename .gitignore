@@ -1,10 +1,15 @@
 # Probe output may include local machine paths; review/sanitize before committing.
 reports/
+data/
+*.duckdb
+*.duckdb.wal
 
 # Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.test_tmp/
+pytest-cache-files-*/
 .mypy_cache/
 .ruff_cache/
 .venv/
@@ -20,3 +25,4 @@ Thumbs.db
 .env
 .env.*
 *.local.json
+config/data_config.local.yaml

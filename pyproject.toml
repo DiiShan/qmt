@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qmt-local-data"
+version = "0.1.0"
+description = "Local, auditable QMT research database built on Parquet and DuckDB"
+requires-python = ">=3.11"
+dependencies = [
+  "duckdb>=1.1",
+  "pandas>=2.2",
+  "pyarrow>=18",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+qmt-local-data = "qmt_local_data.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
