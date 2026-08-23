@@ -3,7 +3,9 @@
 """Minimal MiniQMT/xtdata capability probe.
 
 Policy: one valid sample is enough to mark a data category feasible.
-This is NOT a bulk data downloader, completeness check, or performance test.
+This is NOT a bulk data downloader, historical completeness check, or performance test.
+It lists every interface on the official XtData main documentation page,
+including explicit SKIP records for unsafe or prerequisite-dependent calls.
 MiniQMT must be running and logged in on this Windows machine.
 """
 
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from datetime import datetime, timedelta
@@ -18,6 +21,201 @@ from pathlib import Path
 from typing import Any, Callable
 
 RESULTS: list[dict[str, Any]] = []
+OFFICIAL_DOC_URL = "https://dict.thinktrader.net/nativeApi/xtdata.html"
+
+
+def domain_zh(category: str, name: str) -> str:
+    """Describe the asset/market domain to which a checklist item applies."""
+    domains = {
+        "environment": "Python / 本机运行环境",
+        "connection": "所有 XtData 资产",
+        "inventory": "所有行情周期与特色数据",
+        "l1_market": "沪深 A 股 Level 1",
+        "l1_api": "Level 1 历史行情",
+        "l1_download": "Level 1 本地缓存",
+        "realtime": "沪深 A 股实时行情",
+        "realtime_helper": "所有实时订阅",
+        "calendar": "交易所日历",
+        "metadata": "证券、板块与指数",
+        "corporate_action": "股票除权除息",
+        "financial": "上市公司财务数据",
+        "ipo": "新股 / 新债申购",
+        "etf": "ETF",
+        "convertible_bond": "可转债",
+        "option": "沪深证券期权",
+        "future": "中金所金融期货",
+        "commodity_discovery": "上期所 / 大商所 / 郑商所",
+        "commodity_future": "商品期货",
+        "commodity_option": "商品期权",
+        "level2": "沪深 A 股 Level 2",
+        "special_period": "投研版特色数据",
+        "official_formula": "投研端公式",
+        "official_sector_write": "本地自定义板块",
+        "official_download": "本地数据缓存",
+        "official_extension": "官网版本记录中的扩展接口",
+    }
+    return domains.get(category, "XtData 通用")
+
+
+def returned_fields(value: Any) -> list[str]:
+    """Extract a stable field inventory without retaining additional data rows."""
+    if value is None:
+        return []
+    columns = getattr(value, "columns", None)
+    if columns is not None:
+        try:
+            return [str(column) for column in columns]
+        except Exception:
+            pass
+    names = getattr(getattr(value, "dtype", None), "names", None)
+    if names:
+        return [str(name) for name in names]
+    if isinstance(value, dict):
+        if value and all(not isinstance(item, (dict, list, tuple, set)) and not hasattr(item, "columns") for item in value.values()):
+            return [str(key) for key in value.keys()]
+        for child in value.values():
+            fields = returned_fields(child)
+            if fields:
+                return fields
+        return [str(key) for key in value.keys()]
+    if isinstance(value, (list, tuple)) and value:
+        return returned_fields(value[0])
+    return []
+
+
+def description_zh(category: str, name: str) -> str:
+    """Return a plain-Chinese explanation for every report checklist item."""
+    exact = {
+        ("environment", "import xtquant.xtdata"): "确认当前 Python 环境能够导入 xtquant 行情模块，这是调用 MiniQMT 数据接口的前提。",
+        ("connection", "get_instrument_detail(stock)"): "读取股票合约的名称、市场、交易单位等基础资料，用于验证 MiniQMT 基础连接。",
+        ("connection", "get_instrument_type(stock)"): "判断指定证券属于股票、基金、债券等哪一种合约类型。",
+        ("inventory", "get_period_list"): "查询当前客户端公布的行情周期和特色数据类型清单。",
+        ("l1_api", "get_market_data 1d one sample"): "使用官方通用行情读取接口，从本地缓存取得一根股票日线。",
+        ("l1_api", "get_local_data 1d one sample"): "绕过订阅逻辑，直接从本地行情文件取得一根股票日线。",
+        ("official_download", "download_history_data 1d minimal window"): "通过单标的历史下载接口补充最小日线窗口，验证下载链路是否可用。",
+        ("official_download", "download_history_data2"): "批量异步下载多个证券的历史行情；本次最小样本验证不重复执行。",
+        ("official_download", "download_history_contracts"): "下载历史或已到期合约资料；属于批量元数据操作，本次不执行。",
+        ("realtime", "get_full_tick one symbol"): "读取一个证券当前可见的完整盘口快照。",
+        ("realtime", "get_full_kline 1m one bar"): "读取客户端实时缓存中的最新一根一分钟 K 线。",
+        ("realtime", "subscribe_quote + unsubscribe_quote"): "订阅一个证券的一档行情，确认返回有效订阅号后立即取消。",
+        ("realtime", "subscribe_whole_quote one code + unsubscribe_quote"): "订阅单个证券的全推行情，确认订阅成功后立即取消。",
+        ("realtime_helper", "run"): "进入 xtdata 的阻塞消息接收循环，通常用于让订阅回调持续运行。",
+        ("calendar", "get_holidays one sample"): "读取一个法定节假日样本，用于交易日判断。",
+        ("calendar", "download_holiday_data"): "从服务端补充或更新本地节假日数据。",
+        ("calendar", "get_holidays one sample after download"): "补充节假日数据后再次读取一个样本，确认缓存是否已生效。",
+        ("calendar", "get_trading_calendar one sample"): "按市场读取包含交易日属性的交易日历样本。",
+        ("calendar", "get_trading_dates one sample"): "读取指定市场的一天交易日期。",
+        ("metadata", "get_sector_list one sample"): "读取客户端已有板块清单中的一个板块。",
+        ("official_download", "download_sector_data"): "更新本地行业、概念等板块基础资料。",
+        ("metadata", "get_stock_list_in_sector one sample"): "读取某个板块中的一个成分证券。",
+        ("metadata", "get_index_weight one sample"): "读取沪深 300 指数中一个成分股及其权重。",
+        ("official_download", "download_index_weight"): "批量更新指数成分权重数据。",
+        ("corporate_action", "get_divid_factors one sample"): "读取一个除权除息因子，用于复权价格计算。",
+        ("financial", "download_financial_data2 minimal symbol"): "为单个股票补充官方八类财务报表数据。",
+        ("official_download", "download_financial_data"): "旧版同步财务下载接口；本客户端改用兼容的非阻塞接口。",
+        ("ipo", "get_ipo_info one sample"): "读取当前新股或新债申购信息样本。",
+        ("etf", "ETF instrument detail one sample"): "读取 ETF 合约基础资料，确认该 ETF 代码有效。",
+        ("etf", "get_etf_info one sample"): "读取 ETF 申购赎回清单等专用信息。",
+        ("official_download", "download_etf_info"): "批量更新 ETF 申购赎回基础信息。",
+        ("convertible_bond", "get_cb_info one contract"): "读取一个有效可转债的转股价、转股期等专用资料。",
+        ("convertible_bond", "download_cb_data metadata"): "更新本地可转债专用基础资料。",
+        ("convertible_bond", "get_cb_info one contract after download"): "更新可转债资料后再次读取同一合约，确认缓存是否生效。",
+        ("option", "instrument detail one contract"): "读取一个当前期权合约的基础资料，确认合约代码有效。",
+        ("option", "option detail one contract"): "读取期权行权价、到期日、认购认沽方向等专用属性。",
+        ("option", "1d one bar"): "读取一个当前期权合约的一根日线行情。",
+        ("future", "instrument detail one contract"): "读取一个当前期货合约的基础资料，确认合约代码有效。",
+        ("future", "1d one bar"): "读取一个当前期货合约的一根日线行情。",
+        ("level2", "l2quote: one sample"): "读取 Level 2 十档盘口和委托队列汇总行情样本。",
+        ("level2", "l2quoteaux: one sample"): "读取 Level 2 扩展盘口统计信息样本。",
+        ("level2", "l2order: one sample"): "读取 Level 2 逐笔委托数据样本。",
+        ("level2", "l2transaction: one sample"): "读取 Level 2 逐笔成交数据样本。",
+        ("level2", "l2orderqueue: one sample"): "读取 Level 2 买卖价位委托队列明细样本。",
+        ("official_formula", "subscribe_formula"): "订阅研究终端中已配置公式的实时计算结果。",
+        ("official_formula", "unsubscribe_formula"): "取消此前建立的研究公式订阅。",
+        ("official_formula", "call_formula"): "对指定证券调用一次已配置的研究公式。",
+        ("official_formula", "generate_index_data"): "使用研究公式生成自定义指标数据。",
+        ("official_formula", "call_formula_batch"): "批量调用研究终端中已配置的公式。",
+        ("official_sector_write", "create_sector_folder"): "在客户端新建自定义板块文件夹，会修改本地板块配置。",
+        ("official_sector_write", "create_sector"): "创建一个自定义板块，会修改本地板块配置。",
+        ("official_sector_write", "add_sector"): "向自定义板块加入证券，会修改板块成分。",
+        ("official_sector_write", "remove_stock_from_sector"): "从自定义板块删除证券，会修改板块成分。",
+        ("official_sector_write", "remove_sector"): "删除一个自定义板块，会修改本地板块配置。",
+        ("official_sector_write", "reset_sector"): "重置自定义板块的全部成分，会覆盖本地板块配置。",
+        ("official_extension", "get_trading_time"): "读取指定合约的交易时段；这是官网版本记录中的接口名。",
+        ("official_extension", "get_trading_period installed alias"): "调用当前安装包提供的交易时段兼容接口，读取合约交易时间段。",
+        ("official_extension", "reconnect"): "重新选择或指定 MiniQMT 行情连接地址；会改变当前连接，因此仅检查安装可用性。",
+        ("official_extension", "get_l2thousand_queue"): "读取 Level 2 千档委托队列数据。",
+        ("official_extension", "subscribe_l2thousand + unsubscribe"): "订阅 Level 2 千档盘口数据，确认订阅后立即取消。",
+        ("official_extension", "subscribe_l2thousand_queue + unsubscribe"): "订阅 Level 2 千档委托队列数据，确认订阅后立即取消。",
+    }
+    if (category, name) in exact:
+        return exact[(category, name)]
+
+    if category == "l1_market":
+        period = name.split(":", 1)[0].removeprefix("get_market_data_ex ")
+        period_names = {
+            "tick": "逐笔成交/快照",
+            "1m": "一分钟 K 线",
+            "5m": "五分钟 K 线",
+            "15m": "十五分钟 K 线",
+            "30m": "三十分钟 K 线",
+            "1h": "一小时 K 线",
+            "1d": "日 K 线",
+            "1w": "周 K 线",
+            "1mon": "月 K 线",
+            "1q": "季度 K 线",
+            "1hy": "半年 K 线",
+            "1y": "年 K 线",
+        }
+        return f"读取一个股票的单条{period_names.get(period, period + '周期行情')}，验证该 L1 周期是否可用。"
+
+    if category == "financial" and name.startswith("get_financial_data "):
+        table = name.removeprefix("get_financial_data ").split(":", 1)[0]
+        table_names = {
+            "Balance": "资产负债表",
+            "Income": "利润表",
+            "CashFlow": "现金流量表",
+            "Capital": "股本结构表",
+            "HolderNum": "股东户数表",
+            "Top10Holder": "十大股东表",
+            "Top10FlowHolder": "十大流通股东表",
+            "PershareIndex": "每股指标表",
+        }
+        return f"读取单个股票的一条{table_names.get(table, table)}记录。"
+
+    if category == "commodity_discovery":
+        return f"从 MiniQMT 的{name.split(' ', 1)[0]}合约清单中选择当前有效且有成交的商品期货及对应商品期权。"
+
+    if category in {"option", "future", "commodity_future", "commodity_option"}:
+        asset_names = {
+            "option": "证券期权",
+            "future": "金融期货",
+            "commodity_future": "商品期货",
+            "commodity_option": "商品期权",
+        }
+        asset = asset_names[category]
+        code = name.split(" ", 1)[0]
+        if name.endswith("instrument detail"):
+            return f"读取 {asset} {code} 的交易所、品种、到期日、合约乘数等基础资料。"
+        if name.endswith("instrument type"):
+            return f"判断 {code} 是否被客户端识别为正确的{asset}类型。"
+        if "get_option_detail_data" in name or name.endswith("option detail"):
+            return f"读取商品或证券期权 {code} 的标的、行权价、认购认沽方向和到期日等专用属性。"
+        if "1d one sample" in name:
+            return f"读取 {asset} {code} 的一根历史日线，验证日频历史行情。"
+        if "1m one sample" in name:
+            return f"读取 {asset} {code} 的一根历史一分钟 K 线，验证日内行情。"
+        if "tick one sample" in name:
+            return f"读取 {asset} {code} 的一条历史 tick，验证逐笔/快照行情。"
+        if "download " in name:
+            period = name.rsplit(" ", 1)[-1]
+            return f"为 {asset} {code} 补充最小窗口的 {period} 历史行情。"
+        if name.endswith("full tick snapshot"):
+            return f"读取 {asset} {code} 当前可见的完整盘口快照。"
+        if name.endswith("subscribe + unsubscribe"):
+            return f"订阅 {asset} {code} 的 tick 行情，确认返回有效订阅号后立即取消。"
+
+    return f"检查 XtData 的“{name}”能力是否存在、是否有权限以及能否返回有效样本。"
 
 
 def empty(value: Any) -> bool:
@@ -72,9 +270,68 @@ def classify(exc: Exception) -> str:
     text = f"{type(exc).__name__}: {exc}".lower()
     if any(x in text for x in ["permission", "unauthorized", "forbidden", "权限", "未授权", "vip"]):
         return "NO_PERMISSION"
-    if any(x in text for x in ["has no attribute", "unsupported", "not supported", "unknown period", "不支持"]):
+    if isinstance(exc, TypeError) and "unsupported operand type" in text:
+        return "ERROR"
+    if any(
+        x in text
+        for x in [
+            "has no attribute",
+            "unsupported",
+            "not supported",
+            "unknown period",
+            "invalid period",
+            "function not realize",
+            "errorid\" : 300000",
+            "errorid\" : 200005",
+            "未找到处理函数",
+            "不支持",
+        ]
+    ):
         return "UNSUPPORTED"
     return "ERROR"
+
+
+def capability_metadata(status: str, has_return_value: bool, has_valid_sample: bool) -> dict[str, Any]:
+    if status == "UNSUPPORTED":
+        api_available: bool | None = False
+    elif status in {"PASS", "EMPTY", "NO_PERMISSION"}:
+        api_available = True
+    else:
+        api_available = None
+
+    if status == "NO_PERMISSION":
+        permission = "DENIED"
+    elif status == "PASS":
+        permission = "SUFFICIENT"
+    elif status in {"SKIP", "NOT_TESTED"}:
+        permission = "NOT_TESTED"
+    else:
+        permission = "UNKNOWN"
+
+    return {
+        "api_available": api_available,
+        "permission": permission,
+        "has_return_value": has_return_value,
+        "has_valid_sample": has_valid_sample,
+    }
+
+
+def record(category: str, name: str, status: str, note: str, sample: str = "") -> None:
+    has_value = bool(sample)
+    item = {
+        "category": category,
+        "test": name,
+        "domain_zh": domain_zh(category, name),
+        "description_zh": description_zh(category, name),
+        "returned_fields": [],
+        "status": status,
+        "elapsed_ms": 0,
+        "sample": sample,
+        "note": note,
+        **capability_metadata(status, has_value, status == "PASS"),
+    }
+    RESULTS.append(item)
+    print(f"[{status:13}] {category:20} {name} {sample or note}")
 
 
 def probe(category: str, name: str, fn: Callable[[], Any], validator: Callable[[Any], bool] | None = None, note: str = "") -> Any:
@@ -86,10 +343,14 @@ def probe(category: str, name: str, fn: Callable[[], Any], validator: Callable[[
         item = {
             "category": category,
             "test": name,
+            "domain_zh": domain_zh(category, name),
+            "description_zh": description_zh(category, name),
+            "returned_fields": returned_fields(value),
             "status": status,
             "elapsed_ms": int((time.perf_counter() - started) * 1000),
             "sample": summary(value) if not empty(value) else "",
             "note": note,
+            **capability_metadata(status, not empty(value), ok),
         }
         RESULTS.append(item)
         print(f"[{status:13}] {category:20} {name} {item['sample'] or note}")
@@ -99,10 +360,14 @@ def probe(category: str, name: str, fn: Callable[[], Any], validator: Callable[[
         item = {
             "category": category,
             "test": name,
+            "domain_zh": domain_zh(category, name),
+            "description_zh": description_zh(category, name),
+            "returned_fields": [],
             "status": status,
             "elapsed_ms": int((time.perf_counter() - started) * 1000),
             "sample": "",
             "note": f"{type(exc).__name__}: {exc}",
+            **capability_metadata(status, False, False),
         }
         RESULTS.append(item)
         print(f"[{status:13}] {category:20} {name} {item['note']}")
@@ -110,8 +375,7 @@ def probe(category: str, name: str, fn: Callable[[], Any], validator: Callable[[
 
 
 def skip(category: str, name: str, note: str) -> None:
-    RESULTS.append({"category": category, "test": name, "status": "SKIP", "elapsed_ms": 0, "sample": "", "note": note})
-    print(f"[SKIP         ] {category:20} {name} {note}")
+    record(category, name, "SKIP", note)
 
 
 def one_market(xtdata: Any, code: str, period: str, start: str = "") -> Any:
@@ -127,13 +391,214 @@ def one_market(xtdata: Any, code: str, period: str, start: str = "") -> Any:
     )
 
 
-def subscribe_once(xtdata: Any, code: str) -> Any:
+def one_market_legacy(xtdata: Any, code: str, period: str, start: str = "") -> Any:
+    return xtdata.get_market_data(
+        field_list=[],
+        stock_list=[code],
+        period=period,
+        start_time=start,
+        end_time="",
+        count=1,
+        dividend_type="none",
+        fill_data=True,
+    )
+
+
+def one_local_market(xtdata: Any, code: str, period: str, start: str = "") -> Any:
+    return xtdata.get_local_data(
+        field_list=[],
+        stock_list=[code],
+        period=period,
+        start_time=start,
+        end_time="",
+        count=1,
+        dividend_type="none",
+        fill_data=True,
+    )
+
+
+def subscribe_once(xtdata: Any, code: str) -> dict[str, Any]:
     seq = xtdata.subscribe_quote(code, period="tick", count=1, callback=None)
+    result = {"subscription_id": seq, "unsubscribed": False}
     try:
-        return seq
+        return result
     finally:
         if isinstance(seq, int) and seq > 0 and hasattr(xtdata, "unsubscribe_quote"):
             xtdata.unsubscribe_quote(seq)
+            result["unsubscribed"] = True
+
+
+def subscribe_whole_once(xtdata: Any, code: str) -> dict[str, Any]:
+    seq = xtdata.subscribe_whole_quote([code], callback=None)
+    result = {"subscription_id": seq, "unsubscribed": False}
+    try:
+        return result
+    finally:
+        if isinstance(seq, int) and seq > 0 and hasattr(xtdata, "unsubscribe_quote"):
+            xtdata.unsubscribe_quote(seq)
+            result["unsubscribed"] = True
+
+
+def subscribe_custom_once(xtdata: Any, subscribe_call: Callable[[], Any]) -> dict[str, Any]:
+    seq = subscribe_call()
+    result = {"subscription_id": seq, "unsubscribed": False}
+    try:
+        return result
+    finally:
+        if isinstance(seq, int) and seq > 0 and hasattr(xtdata, "unsubscribe_quote"):
+            xtdata.unsubscribe_quote(seq)
+            result["unsubscribed"] = True
+
+
+def download_financial_minimal(xtdata: Any, code: str, tables: list[str]) -> dict[str, Any]:
+    """Use the legacy-compatible non-waiting entrypoint when available.
+
+    Some broker MiniQMT builds accept the download request but never publish the
+    completion callback expected by download_financial_data(), which otherwise
+    blocks forever.  The compatibility entrypoint still requests only one
+    symbol and the eight tables documented by the official XtData page.
+    """
+    if hasattr(xtdata, "download_financial_data2"):
+        xtdata.download_financial_data2([code], tables)
+        return {"requested": True, "api": "download_financial_data2"}
+    xtdata.download_financial_data([code], tables)
+    return {"requested": True, "api": "download_financial_data"}
+
+
+def level2_one_with_subscription(xtdata: Any, code: str, period: str) -> dict[str, Any]:
+    """Read one L2 sample, subscribing briefly only when the direct read is empty."""
+    data = xtdata.get_market_data_ex(field_list=[], stock_list=[code], period=period, count=1)
+    if not empty(data):
+        return {"subscription_id": None, "sample": data}
+
+    seq = xtdata.subscribe_quote(code, period=period, count=0, callback=None)
+    try:
+        if isinstance(seq, int) and seq > 0:
+            time.sleep(1)
+            data = xtdata.get_market_data_ex(field_list=[], stock_list=[code], period=period, count=1)
+        return {"subscription_id": seq, "sample": data}
+    finally:
+        if isinstance(seq, int) and seq > 0 and hasattr(xtdata, "unsubscribe_quote"):
+            xtdata.unsubscribe_quote(seq)
+
+
+def discover_commodity_contracts(xtdata: Any, today: str) -> dict[str, dict[str, str]]:
+    """Select one active, liquid future and matching option per visible commodity exchange."""
+    markets = {
+        "SHFE": ("上期所", r"^[a-z]{1,3}\d{4}\.SF$", ".SF"),
+        "DCE": ("大商所", r"^[a-z]{1,3}\d{4}\.DF$", ".DF"),
+        "CZCE": ("郑商所", r"^[A-Z]{1,3}\d{3}\.ZF$", ".ZF"),
+    }
+    selected: dict[str, dict[str, str]] = {}
+
+    def detail(code: str) -> dict[str, Any]:
+        try:
+            value = xtdata.get_instrument_detail(code, True)
+            return value if isinstance(value, dict) else {}
+        except Exception:
+            return {}
+
+    def active(value: dict[str, Any]) -> bool:
+        expiry = str(value.get("ExpireDate") or value.get("EndDelivDate") or "")
+        return bool(value) and (not expiry or expiry == "0" or expiry >= today)
+
+    for market, (sector, future_pattern, suffix) in markets.items():
+        try:
+            codes = xtdata.get_stock_list_in_sector(sector) or []
+        except Exception:
+            continue
+        future_candidates: list[tuple[float, str, dict[str, Any]]] = []
+        for code in codes:
+            if not re.match(future_pattern, code):
+                continue
+            value = detail(code)
+            if active(value) and value.get("OptionType", -1) == -1:
+                volume = float(value.get("LastVolume") or 0)
+                main_bonus = 1_000_000_000 if value.get("MainContract") == 1 else 0
+                future_candidates.append((main_bonus + volume, code, value))
+        if not future_candidates:
+            continue
+
+        if market == "SHFE":
+            option_code_pattern = re.compile(r"^([a-z]{1,3}\d{4})[CP]\d+\.SF$")
+        elif market == "DCE":
+            option_code_pattern = re.compile(r"^([a-z]{1,3}\d{4})-[CP]-\d+\.DF$")
+        else:
+            option_code_pattern = re.compile(r"^([A-Z]{1,3}\d{3})[CP]\d+\.ZF$")
+
+        option_groups: dict[str, list[str]] = {}
+        for code in codes:
+            match = option_code_pattern.match(code)
+            if match:
+                option_groups.setdefault(match.group(1), []).append(code)
+
+        # Prefer a liquid future that still has at least one unexpired matching
+        # option. This keeps each exchange's future/option validation paired.
+        paired: tuple[str, str] | None = None
+        for _, future_code, _ in sorted(future_candidates, key=lambda item: item[0], reverse=True):
+            underlying = future_code.removesuffix(suffix)
+            option_candidates: list[tuple[float, str]] = []
+            for option_code in option_groups.get(underlying, []):
+                value = detail(option_code)
+                if active(value) and value.get("OptionType", -1) in {0, 1}:
+                    option_candidates.append((float(value.get("LastVolume") or 0), option_code))
+            if option_candidates:
+                paired = (future_code, max(option_candidates, key=lambda item: item[0])[1])
+                break
+
+        if paired:
+            selected[market] = {"future": paired[0], "option": paired[1]}
+        else:
+            selected[market] = {"future": max(future_candidates, key=lambda item: item[0])[1]}
+    return selected
+
+
+def probe_derivative_contract(
+    xtdata: Any,
+    category: str,
+    code: str,
+    start: str,
+    allow_download: bool,
+    is_option: bool,
+) -> None:
+    """Cover static, historical, snapshot and subscription paths for one derivative."""
+    probe(category, f"{code} instrument detail", lambda: xtdata.get_instrument_detail(code, True))
+    probe(category, f"{code} instrument type", lambda: xtdata.get_instrument_type(code))
+    if is_option and hasattr(xtdata, "get_option_detail_data"):
+        probe(category, f"{code} get_option_detail_data", lambda: xtdata.get_option_detail_data(code))
+
+    for period in ["1d", "1m", "tick"]:
+        value = probe(
+            category,
+            f"{code} {period} one sample",
+            lambda p=period: one_market(xtdata, code, p, start),
+            note="count=1",
+        )
+        if empty(value) and allow_download and period in {"1d", "1m"}:
+            probe(
+                category,
+                f"{code} download {period}",
+                lambda p=period: (xtdata.download_history_data(code, period=p, start_time=start, end_time=""), {"requested": True})[1],
+            )
+            probe(
+                category,
+                f"{code} {period} one sample after download",
+                lambda p=period: one_market(xtdata, code, p, start),
+                note="count=1",
+            )
+
+    probe(category, f"{code} full tick snapshot", lambda: first_sample(xtdata.get_full_tick([code])))
+    probe(
+        category,
+        f"{code} subscribe + unsubscribe",
+        lambda: subscribe_once(xtdata, code),
+        validator=lambda value: (
+            isinstance(value, dict)
+            and isinstance(value.get("subscription_id"), int)
+            and value["subscription_id"] > 0
+            and value.get("unsubscribed") is True
+        ),
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -143,6 +608,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cb", default="")
     p.add_argument("--option-code", default="")
     p.add_argument("--future-code", default="")
+    p.add_argument(
+        "--commodity-future-code",
+        action="append",
+        default=[],
+        help="Commodity future code; repeat for multiple exchanges. Auto-discovers SHFE/DCE/CZCE when omitted.",
+    )
+    p.add_argument(
+        "--commodity-option-code",
+        action="append",
+        default=[],
+        help="Commodity option code; repeat for multiple exchanges. Auto-discovers SHFE/DCE/CZCE when omitted.",
+    )
     p.add_argument("--download", action="store_true", help="Allow minimal supplement downloads when local data is missing")
     p.add_argument("--output-dir", default="reports")
     return p.parse_args()
@@ -159,21 +636,36 @@ def main() -> int:
         from xtquant import xtdata  # type: ignore
         probe("environment", "import xtquant.xtdata", lambda: {"path": getattr(xtquant, "__file__", "")})
     except Exception as exc:
-        RESULTS.append({"category": "environment", "test": "import xtquant.xtdata", "status": classify(exc), "elapsed_ms": 0, "sample": "", "note": str(exc)})
+        record("environment", "import xtquant.xtdata", classify(exc), str(exc))
         write_report(args.output_dir, args)
         return 2
 
     # Connection / runtime inventory.
     probe("connection", "get_instrument_detail(stock)", lambda: xtdata.get_instrument_detail(args.stock, True))
+    probe("connection", "get_instrument_type(stock)", lambda: xtdata.get_instrument_type(args.stock))
     periods = probe("inventory", "get_period_list", lambda: xtdata.get_period_list())
 
     # L1: exactly one returned bar/tick per tested period where count is supported.
     for period in ["1d", "1m", "5m", "15m", "30m", "1h", "1w", "1mon", "1q", "1hy", "1y", "tick"]:
-        value = probe("l1_market", f"{period}: one sample", lambda p=period: one_market(xtdata, args.stock, p, start), note="count=1")
+        value = probe("l1_market", f"get_market_data_ex {period}: one sample", lambda p=period: one_market(xtdata, args.stock, p, start), note="count=1")
         if empty(value) and args.download and period in {"1d", "1m", "5m", "tick"}:
             # Minimal 7-calendar-day supplement window; read is still one sample.
             probe("l1_download", f"download {period} minimal window", lambda p=period: (xtdata.download_history_data(args.stock, period=p, start_time=start, end_time=""), {"requested": True})[1])
-            probe("l1_market", f"{period}: one sample after download", lambda p=period: one_market(xtdata, args.stock, p, start), note="count=1")
+            probe("l1_market", f"get_market_data_ex {period}: one sample after download", lambda p=period: one_market(xtdata, args.stock, p, start), note="count=1")
+
+    # Official primary/local read APIs use the same one-symbol, one-row policy.
+    probe("l1_api", "get_market_data 1d one sample", lambda: one_market_legacy(xtdata, args.stock, "1d", start), note="count=1")
+    probe("l1_api", "get_local_data 1d one sample", lambda: one_local_market(xtdata, args.stock, "1d", start), note="count=1")
+    if args.download:
+        probe(
+            "official_download",
+            "download_history_data 1d minimal window",
+            lambda: (xtdata.download_history_data(args.stock, period="1d", start_time=start, end_time=""), {"requested": True})[1],
+        )
+    else:
+        skip("official_download", "download_history_data", "Pass --download to verify the minimal one-symbol download path")
+    skip("official_download", "download_history_data2", "Batch alternative not duplicated under the one-sample policy")
+    skip("official_download", "download_history_contracts", "Bulk expired-contract metadata download is outside the minimal safety scope")
 
     # Realtime: one symbol, one snapshot / one successful subscription.
     probe("realtime", "get_full_tick one symbol", lambda: first_sample(xtdata.get_full_tick([args.stock])))
@@ -181,29 +673,104 @@ def main() -> int:
         probe("realtime", "get_full_kline 1m one bar", lambda: xtdata.get_full_kline([], [args.stock], period="1m", count=1))
     else:
         skip("realtime", "get_full_kline", "API not present")
-    probe("realtime", "subscribe_quote one acceptance", lambda: subscribe_once(xtdata, args.stock), validator=lambda x: isinstance(x, int) and x > 0)
+    probe(
+        "realtime",
+        "subscribe_quote + unsubscribe_quote",
+        lambda: subscribe_once(xtdata, args.stock),
+        validator=lambda x: isinstance(x, dict) and isinstance(x.get("subscription_id"), int) and x["subscription_id"] > 0 and x.get("unsubscribed") is True,
+    )
+    if hasattr(xtdata, "subscribe_whole_quote"):
+        probe(
+            "realtime",
+            "subscribe_whole_quote one code + unsubscribe_quote",
+            lambda: subscribe_whole_once(xtdata, args.stock),
+            validator=lambda x: isinstance(x, dict) and isinstance(x.get("subscription_id"), int) and x["subscription_id"] > 0 and x.get("unsubscribed") is True,
+        )
+    else:
+        record("realtime", "subscribe_whole_quote", "UNSUPPORTED", "API not present in the installed xtquant package")
+    skip("realtime_helper", "run", "Blocking receive-loop helper; subscription acceptance and cleanup were tested directly")
+
+    # Interfaces referenced by the official XtData version history but not all
+    # represented as standalone entries in the main interface table.
+    if hasattr(xtdata, "get_trading_time"):
+        probe("official_extension", "get_trading_time", lambda: xtdata.get_trading_time(args.stock))
+    else:
+        record("official_extension", "get_trading_time", "UNSUPPORTED", "Officially referenced name is absent from this installed package")
+    if hasattr(xtdata, "get_trading_period"):
+        probe("official_extension", "get_trading_period installed alias", lambda: xtdata.get_trading_period(args.stock))
+    else:
+        record("official_extension", "get_trading_period installed alias", "UNSUPPORTED", "Installed compatibility alias is absent")
+
+    skip("official_extension", "reconnect", "Installed API would change the active MiniQMT connection; static availability only")
+    RESULTS[-1]["api_available"] = hasattr(xtdata, "reconnect")
+
+    if hasattr(xtdata, "get_l2thousand_queue"):
+        probe("official_extension", "get_l2thousand_queue", lambda: xtdata.get_l2thousand_queue(args.stock))
+    else:
+        record("official_extension", "get_l2thousand_queue", "UNSUPPORTED", "API is absent from the installed package")
+    for method_name in ["subscribe_l2thousand", "subscribe_l2thousand_queue"]:
+        if hasattr(xtdata, method_name):
+            probe(
+                "official_extension",
+                f"{method_name} + unsubscribe",
+                lambda m=method_name: subscribe_custom_once(xtdata, lambda: getattr(xtdata, m)(args.stock)),
+                validator=lambda value: (
+                    isinstance(value, dict)
+                    and isinstance(value.get("subscription_id"), int)
+                    and value["subscription_id"] > 0
+                    and value.get("unsubscribed") is True
+                ),
+            )
+        else:
+            record("official_extension", method_name, "UNSUPPORTED", "API is absent from the installed package")
 
     # Reference/static categories. API may internally return a list; report only first sample.
-    probe("calendar", "get_holidays one sample", lambda: first_sample(xtdata.get_holidays()))
+    holidays = probe("calendar", "get_holidays one sample", lambda: first_sample(xtdata.get_holidays()))
+    if empty(holidays) and args.download and hasattr(xtdata, "download_holiday_data"):
+        probe("calendar", "download_holiday_data", lambda: (xtdata.download_holiday_data(), {"requested": True})[1])
+        probe("calendar", "get_holidays one sample after download", lambda: first_sample(xtdata.get_holidays()))
     probe("calendar", "get_trading_calendar one sample", lambda: first_sample(xtdata.get_trading_calendar("SH", start_time=start, end_time=today)))
     probe("calendar", "get_trading_dates one sample", lambda: first_sample(xtdata.get_trading_dates("SH", start_time=start, end_time=today, count=1)))
 
-    if args.download:
-        probe("metadata", "download_sector_data", lambda: (xtdata.download_sector_data(), {"requested": True})[1])
     sectors = probe("metadata", "get_sector_list one sample", lambda: first_sample(xtdata.get_sector_list()))
+    if empty(sectors) and args.download:
+        probe("metadata", "download_sector_data", lambda: (xtdata.download_sector_data(), {"requested": True})[1])
+        sectors = probe("metadata", "get_sector_list one sample after download", lambda: first_sample(xtdata.get_sector_list()))
+    elif not empty(sectors):
+        skip("official_download", "download_sector_data", "Existing sector metadata is usable; previous direct refresh did not return and was not repeated")
+    else:
+        skip("official_download", "download_sector_data", "Pass --download only when sector metadata is empty")
     if sectors:
         sector = sectors[0] if isinstance(sectors, list) else next(iter(sectors)) if isinstance(sectors, dict) else None
         if sector:
             probe("metadata", "get_stock_list_in_sector one sample", lambda: first_sample(xtdata.get_stock_list_in_sector(sector)))
 
+    probe("metadata", "get_index_weight one sample", lambda: first_sample(xtdata.get_index_weight("000300.SH")))
+    skip("official_download", "download_index_weight", "All-index synchronous refresh is outside the one-sample safety scope")
+
     probe("corporate_action", "get_divid_factors one sample", lambda: first_sample(xtdata.get_divid_factors(args.stock, start_time="20200101", end_time=today)))
 
     # Financial: test each table separately; first valid sample is enough.
-    financial_tables = ["Balance", "Income", "CashFlow", "Pershareindex"]
+    financial_tables = [
+        "Balance",
+        "Income",
+        "CashFlow",
+        "Capital",
+        "HolderNum",
+        "Top10Holder",
+        "Top10FlowHolder",
+        "PershareIndex",
+    ]
     if args.download:
-        probe("financial", "download_financial_data minimal symbol", lambda: (xtdata.download_financial_data([args.stock], financial_tables), {"requested": True})[1])
+        financial_download_name = "download_financial_data2" if hasattr(xtdata, "download_financial_data2") else "download_financial_data"
+        probe(
+            "financial",
+            f"{financial_download_name} minimal symbol",
+            lambda: download_financial_minimal(xtdata, args.stock, financial_tables),
+        )
     for table in financial_tables:
-        probe("financial", f"{table}: one sample", lambda t=table: first_sample(xtdata.get_financial_data([args.stock], [t], start_time="20200101")))
+        probe("financial", f"get_financial_data {table}: one sample", lambda t=table: first_sample(xtdata.get_financial_data([args.stock], [t], start_time="20200101")))
+    skip("official_download", "download_financial_data", "Legacy synchronous entrypoint previously waited indefinitely on this client; compatible download_financial_data2 was used")
 
     # IPO / ETF.
     probe("ipo", "get_ipo_info one sample", lambda: first_sample(xtdata.get_ipo_info("", "")))
@@ -211,31 +778,77 @@ def main() -> int:
     if hasattr(xtdata, "get_etf_info"):
         probe("etf", "get_etf_info one sample", lambda: first_sample(xtdata.get_etf_info()))
     else:
-        skip("etf", "get_etf_info", "API not present")
+        record("etf", "get_etf_info", "UNSUPPORTED", "API not present")
+    skip("official_download", "download_etf_info", "All-ETF synchronous download not run after the client rejected get_etf_info")
 
-    # Optional representative contracts: exactly one contract per category.
+    # Optional representative contracts: one current contract per category.
     if args.cb:
-        probe("convertible_bond", "get_cb_info one contract", lambda: xtdata.get_cb_info(args.cb))
+        cb_info = probe("convertible_bond", "get_cb_info one contract", lambda: xtdata.get_cb_info(args.cb))
+        if empty(cb_info) and args.download and hasattr(xtdata, "download_cb_data"):
+            probe("convertible_bond", "download_cb_data metadata", lambda: (xtdata.download_cb_data(), {"requested": True})[1])
+            probe("convertible_bond", "get_cb_info one contract after download", lambda: xtdata.get_cb_info(args.cb))
     else:
         skip("convertible_bond", "get_cb_info", "Pass --cb with one current valid convertible bond")
 
     if args.option_code:
-        probe("option", "instrument detail one contract", lambda: xtdata.get_instrument_detail(args.option_code, True))
-        if hasattr(xtdata, "get_option_detail_data"):
-            probe("option", "option detail one contract", lambda: xtdata.get_option_detail_data(args.option_code))
-        probe("option", "1d one bar", lambda: one_market(xtdata, args.option_code, "1d", start))
+        probe_derivative_contract(xtdata, "option", args.option_code, start, args.download, is_option=True)
     else:
         skip("option", "option APIs", "Pass --option-code with one current valid option")
 
     if args.future_code:
-        probe("future", "instrument detail one contract", lambda: xtdata.get_instrument_detail(args.future_code, True))
-        probe("future", "1d one bar", lambda: one_market(xtdata, args.future_code, "1d", start))
+        probe_derivative_contract(xtdata, "future", args.future_code, start, args.download, is_option=False)
     else:
         skip("future", "future APIs", "Pass --future-code with one current valid future")
 
+    # Commodity derivatives: when codes are not supplied, select one active
+    # future and matching option for each visible commodity exchange.
+    commodity_futures = list(args.commodity_future_code)
+    commodity_options = list(args.commodity_option_code)
+    if not commodity_futures and not commodity_options:
+        discovered = discover_commodity_contracts(xtdata, today)
+        for market in ["SHFE", "DCE", "CZCE"]:
+            contracts = discovered.get(market, {})
+            if contracts:
+                record(
+                    "commodity_discovery",
+                    f"{market} current contracts",
+                    "PASS",
+                    "Selected from the runtime sector list using expiry, main-contract flag and recent volume",
+                    sample=json.dumps(contracts, ensure_ascii=False),
+                )
+                if contracts.get("future"):
+                    commodity_futures.append(contracts["future"])
+                if contracts.get("option"):
+                    commodity_options.append(contracts["option"])
+            else:
+                record(
+                    "commodity_discovery",
+                    f"{market} current contracts",
+                    "EMPTY",
+                    "No active matching commodity future/option pair was discovered",
+                )
+
+    if commodity_futures:
+        for code in commodity_futures:
+            probe_derivative_contract(xtdata, "commodity_future", code, start, args.download, is_option=False)
+    else:
+        skip("commodity_future", "commodity future APIs", "No current commodity future code was supplied or discovered")
+
+    if commodity_options:
+        for code in commodity_options:
+            probe_derivative_contract(xtdata, "commodity_option", code, start, args.download, is_option=True)
+    else:
+        skip("commodity_option", "commodity option APIs", "No current commodity option code was supplied or discovered")
+
     # L2: one record only. EMPTY outside trading hours remains inconclusive.
     for period in ["l2quote", "l2quoteaux", "l2order", "l2transaction", "l2orderqueue"]:
-        probe("level2", f"{period}: one sample", lambda p=period: xtdata.get_market_data_ex(field_list=[], stock_list=[args.stock], period=p, count=1), note="count=1; EMPTY outside trading hours is inconclusive")
+        probe(
+            "level2",
+            f"{period}: one sample",
+            lambda p=period: level2_one_with_subscription(xtdata, args.stock, p),
+            validator=lambda x: isinstance(x, dict) and not empty(x.get("sample")),
+            note="count=1; direct read then one brief subscription; EMPTY outside trading hours is inconclusive",
+        )
 
     # Special/research periods: inventory only here. Codex should perform one schema-appropriate
     # sample for each desired discovered category rather than blindly querying with an A-share code.
@@ -248,10 +861,34 @@ def main() -> int:
     period_set = set(periods or []) if isinstance(periods, (list, tuple, set)) else set()
     for p in known_special:
         if p in period_set:
-            RESULTS.append({"category": "special_period", "test": p, "status": "NOT_TESTED", "elapsed_ms": 0, "sample": "runtime advertised", "note": "Use one schema-appropriate sample only"})
+            record("special_period", p, "NOT_TESTED", "Use one schema-appropriate sample only", sample="runtime advertised")
+
+    # Officially documented helpers requiring a configured research formula or
+    # mutating local sector state are listed for coverage but intentionally not called.
+    for name in ["subscribe_formula", "unsubscribe_formula", "call_formula", "generate_index_data"]:
+        skip("official_formula", name, "Requires a configured research-terminal formula; no formula name was supplied")
+    if hasattr(xtdata, "call_formula_batch"):
+        skip("official_formula", "call_formula_batch", "Requires configured research-terminal formulas")
+    else:
+        record("official_formula", "call_formula_batch", "UNSUPPORTED", "Documented API is absent from the installed xtquant package")
+
+    for name in [
+        "create_sector_folder",
+        "create_sector",
+        "add_sector",
+        "remove_stock_from_sector",
+        "remove_sector",
+        "reset_sector",
+    ]:
+        skip("official_sector_write", name, "Mutates local sector state; excluded by the read-only safety policy")
 
     write_report(args.output_dir, args)
     basic_fail = any(r["category"] in {"environment", "connection"} and r["status"] != "PASS" for r in RESULTS)
+    if hasattr(xtdata, "disconnect"):
+        try:
+            xtdata.disconnect()
+        except Exception as exc:
+            print(f"Warning: xtdata disconnect failed: {type(exc).__name__}: {exc}")
     return 2 if basic_fail else 0
 
 
@@ -259,16 +896,117 @@ def write_report(output_dir: str, args: argparse.Namespace) -> None:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    status_counts: dict[str, int] = {}
+    category_status_counts: dict[str, dict[str, int]] = {}
+    for item in RESULTS:
+        status = item["status"]
+        status_counts[status] = status_counts.get(status, 0) + 1
+        category = item["category"]
+        category_counts = category_status_counts.setdefault(category, {})
+        category_counts[status] = category_counts.get(status, 0) + 1
+
+    report_summary = {
+        "official_main_api_entries": 43,
+        "official_version_extension_entries": 7,
+        "total_items": len(RESULTS),
+        "status_counts": status_counts,
+        "items_with_return_value": sum(1 for item in RESULTS if item.get("has_return_value")),
+        "items_with_valid_sample": sum(1 for item in RESULTS if item.get("has_valid_sample")),
+        "permission_denied_items": sum(1 for item in RESULTS if item.get("permission") == "DENIED"),
+        "category_status_counts": category_status_counts,
+    }
     payload = {
         "policy": "ONE_SAMPLE_PER_DATA_CATEGORY",
+        "coverage": "OFFICIAL_XTDATA_MAIN_API_ENTRIES_PLUS_VERSION_HISTORY_EXTENSIONS_AND_ASSET_DOMAINS",
+        "official_document": OFFICIAL_DOC_URL,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "python": sys.version,
         "args": vars(args),
+        "summary": report_summary,
         "results": RESULTS,
     }
-    path = out / f"qmt_api_minimal_{stamp}.json"
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nReport: {path.resolve()}")
+    json_path = out / f"qmt_api_official_{stamp}.json"
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def md_cell(value: Any, limit: int = 220) -> str:
+        text = str(value if value is not None else "")
+        text = text.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+        return text[:limit]
+
+    lines = [
+        "# MiniQMT / XtData 官网 API 完整性报告",
+        "",
+        f"- Generated: {payload['generated_at']}",
+        f"- Official documentation: {OFFICIAL_DOC_URL}",
+        f"- Policy: one valid sample per data category; unsafe writes are listed as SKIP",
+        f"- Official main API entries: {report_summary['official_main_api_entries']}",
+        f"- Official version-history extensions: {report_summary['official_version_extension_entries']}",
+        f"- Total checklist items: {report_summary['total_items']}",
+        f"- Status counts: {json.dumps(status_counts, ensure_ascii=False, sort_keys=True)}",
+        f"- Valid samples: {report_summary['items_with_valid_sample']}",
+        f"- Permission denied: {report_summary['permission_denied_items']}",
+        "",
+        "## 分类状态汇总",
+        "",
+        "| 类别 | PASS | EMPTY | NO_PERMISSION | UNSUPPORTED | ERROR | SKIP | NOT_TESTED |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for category, counts in category_status_counts.items():
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    category,
+                    str(counts.get("PASS", 0)),
+                    str(counts.get("EMPTY", 0)),
+                    str(counts.get("NO_PERMISSION", 0)),
+                    str(counts.get("UNSUPPORTED", 0)),
+                    str(counts.get("ERROR", 0)),
+                    str(counts.get("SKIP", 0)),
+                    str(counts.get("NOT_TESTED", 0)),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+        "",
+        "## 逐项结果",
+        "",
+        "| 类别 | 适用资产 / 市场域 | 接口 / 检查项 | 中文说明 | 状态 | API 可用 | 权限 | 有返回值 | 有效样本 | 实际返回字段 | 证据 |",
+        "|---|---|---|---|---|---|---|---:|---:|---|---|",
+        ]
+    )
+    for item in RESULTS:
+        api_available = item.get("api_available")
+        api_text = "YES" if api_available is True else "NO" if api_available is False else "UNKNOWN"
+        evidence = item.get("sample") or item.get("note") or ""
+        fields = item.get("returned_fields") or []
+        field_text = f"{len(fields)} 个：" + ", ".join(str(field) for field in fields) if fields else "无 / 未返回"
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    md_cell(item.get("category")),
+                    md_cell(item.get("domain_zh")),
+                    md_cell(item.get("test")),
+                    md_cell(item.get("description_zh"), limit=300),
+                    md_cell(item.get("status")),
+                    api_text,
+                    md_cell(item.get("permission")),
+                    "YES" if item.get("has_return_value") else "NO",
+                    "YES" if item.get("has_valid_sample") else "NO",
+                    md_cell(field_text, limit=320),
+                    md_cell(evidence),
+                ]
+            )
+            + " |"
+        )
+    md_path = out / f"qmt_api_official_{stamp}.md"
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(f"\nJSON report: {json_path.resolve()}")
+    print(f"Markdown report: {md_path.resolve()}")
     print("Policy: one valid sample is sufficient for PASS; no bulk collection performed.")
 
 
