@@ -14,7 +14,7 @@
 - 支持 `count` 的读取统一使用 `count=1`。
 - 一旦取得 1 个有效样本并标记 `PASS`，立即停止该类别继续取数。
 - 若必须补充本地历史数据，只下载支撑最小验证所需的小窗口，然后读取 1 笔。
-- 实时行情只测试 1 个标的；订阅成功后立即取消。
+- 实时行情只测试 1 个标的；实时订阅统一使用 `count=0`，收到 1 条通过 `time/stime` 新鲜度校验的 callback 后立即取消。
 - 不扫描全市场，不批量下载，不长期订阅，不保存大量逐笔数据。
 - 官方主文档中的接口即使因安全或前置条件不能执行，也必须进入报告并明确标为 `SKIP`，不能从检查清单中消失。
 
@@ -86,6 +86,8 @@ python qmt_api_probe_minimal.py --download
 - `subscribe_quote`：收到 1 条合法 callback 后立即取消
 - `subscribe_whole_quote`：只订阅 1 个代码；订阅受理与实际 callback 分开记录
 
+所有订阅 API 都分别记录 `subscription_accepted` 与 `fresh_callback_received`。正订阅号不等于实时数据可用；只有时间不早于订阅开始前合理容差的 callback 才能判定实时 `PASS`。
+
 休市时没有更新 callback 记为 `EMPTY / SUBSCRIBE_ACCEPTED_NO_CALLBACK`，不视为无权限，也不记为实时行情 `PASS`。
 
 ### Reference / metadata
@@ -141,7 +143,7 @@ python qmt_api_probe_minimal.py --download `
 
 ### Commodity futures / commodity options
 
-商品衍生品至少覆盖 MiniQMT 当前可见的上期所、大商所、郑商所。每家交易所自动选择一组未到期且近期有成交的商品期货和对应商品期权；也允许通过可重复参数显式指定：
+商品衍生品覆盖 MiniQMT 当前可见的上期所、大商所、郑商所、上期能源和广期所。每家交易所自动选择一组未到期且近期有成交的商品期货和对应商品期权；运行时没有对应板块/有效合约时明确记 `NOT_TESTED`，不使用臆造代码。也允许通过可重复参数显式指定：
 
 ```powershell
 python qmt_api_probe_minimal.py --download `
@@ -178,6 +180,15 @@ python qmt_api_probe_minimal.py --download `
 - 明确权限/VIP错误 → `NO_PERMISSION`
 - API/period不存在 → `UNSUPPORTED`
 - 休市时为空 → `EMPTY`，结论暂不确定；交易时段只复测到拿到 1 笔或得到明确权限结论为止
+
+### Order flow and historical ST
+
+- 订单流只最小下载并读取 `orderflow1m` 一笔；其余合成周期只列清单，不重复取数。官方前置条件记为“订单流版”。
+- 历史 ST 分别检查 `download_his_st_data()` 与 `get_his_st_data(<已知有 ST 历史的股票>)`，不与 `specialtreatment` period 混为同一入口。
+
+### Option markets
+
+上证证券期权、深证证券期权和中金所股指期权各选择一个当前有效代表合约，分别验证合约资料、1d、1m、tick、完整快照和新鲜 callback。
 
 ### Special / research data
 
@@ -222,6 +233,8 @@ python qmt_api_probe_minimal.py --download `
 - 是否取得有效样本
 - 适用资产/市场域
 - 实际返回字段清单
+- 官方前置版本/数据权限（普通 / 投研 / VIP / 订单流 / Level 2）
+- 订阅是否受理、是否收到任意 callback、是否收到通过时间校验的新鲜 callback
 
 **不要把返回行数、下载量或覆盖年限作为测试成绩。一类数据只要拿到 1 个有效样本，可行性验证就完成。**
 
@@ -238,7 +251,7 @@ python qmt_api_probe_minimal.py --download `
 7. Level 2 每类是否能取 1 笔，或明确是无权限/不支持？
 8. 特色数据哪些已经用 1 个正确样本证明可行？
 9. 官方 XtData 主文档的每个接口是否均有一条检查记录，包括明确的 `SKIP`？
-10. 上期所、大商所、郑商所的商品期货及对应商品期权，是否分别覆盖静态资料、历史行情、快照和订阅？
+10. 上期所、大商所、郑商所、上期能源、广期所的商品期货及对应商品期权，是否分别覆盖静态资料、历史行情、快照和订阅，或明确记录运行时不可发现？
 11. 官网版本记录中的 `get_market_data_ex`、期权详情、交易时段、重连和千档行情是否已单列？
 12. MiniQMT build、行情后端 build、xtquant 包版本，以及 handler/schema 兼容性是否已记录？
 

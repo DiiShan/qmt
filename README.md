@@ -12,15 +12,16 @@
    - 合约基础信息
    - 交易日历 / 节假日 / 板块
    - Level 1 日线、分钟线、tick、最新快照
-   - 实时订阅
+   - 实时订阅（订阅受理与新鲜 callback 分开判定）
    - 官方列出的 8 张财务表
    - 除权除息因子
    - 新股申购信息
    - ETF 申赎信息
    - 可转债信息（可选代码）
-   - 期权信息（可选代码）
-   - 期货行情（可选代码）
-   - 上期所、大商所、郑商所商品期货和商品期权（默认自动选择当前有效配对合约）
+   - 上证、深证证券期权及中金所股指期权
+   - 股指期货行情（可选代码）
+   - 上期所、大商所、郑商所、上期能源、广期所商品期货和商品期权（运行时可见时自动选择当前有效配对合约）
+   - 订单流 `orderflow1m` 与历史 ST 专用 helper
    - Level 2 行情类型（权限/交易时段敏感）
 4. 将结果区分为 `PASS / EMPTY / NO_PERMISSION / UNSUPPORTED / ERROR / SKIP`，避免把“休市无实时数据”误判成“无权限”。
 5. 输出 JSON 与 Markdown 报告；每项均记录适用资产/市场域、API 是否存在、权限判断、是否有返回值、实际返回字段及是否取得有效样本。
@@ -51,7 +52,8 @@ python qmt_api_probe_minimal.py
 ### 3. 允许补充少量测试数据
 
 ```powershell
-python qmt_api_probe_minimal.py --download
+python qmt_api_probe_minimal.py --download `
+  --miniqmt-dir '<MiniQMT安装目录>'
 ```
 
 默认测试标的为 `000001.SZ`，历史窗口默认为近 7 天。
@@ -67,7 +69,7 @@ python qmt_api_probe_minimal.py --download `
   --future-code <你的有效期货代码>
 ```
 
-期权、期货代码会随合约到期变化，因此脚本不硬编码一个可能已失效的合约。未传入商品合约参数时，脚本会从 MiniQMT 的上期所、大商所、郑商所运行时板块中，按到期日、主力标志和近期成交量各选择一组有效的商品期货及对应商品期权。
+期权、期货代码会随合约到期变化，因此脚本不硬编码一个可能已失效的合约。脚本自动从运行时板块发现深证证券期权和中金所股指期权；未传入商品合约参数时，则从 MiniQMT 可见的上期所、大商所、郑商所、上期能源和广期所板块中，按到期日、主力标志和近期成交量各选择一组有效商品期货及对应商品期权。运行时没有相应板块或有效合约时记为 `NOT_TESTED`，不会伪造代码。
 
 也可以重复传入参数覆盖自动选择：
 
@@ -87,7 +89,7 @@ python qmt_api_probe_minimal.py --download `
 python qmt_api_probe_minimal.py --review-p0-p1-only --download
 ```
 
-该模式覆盖客户端版本、版本记录新增 XtData API、ETF、可转债、北交所、指数、特色 period 与真实订阅回调证据。
+该模式覆盖客户端版本、版本记录新增 XtData API、ETF、可转债、北交所、指数、五个商品期货市场、深证/中金所期权、订单流、历史 ST、特色 period 与真实订阅回调证据。所有实时订阅都使用 `count=0`；正订阅号仅表示受理，只有 callback 的 `time/stime` 通过相对订阅开始时间的新鲜度校验才证明实时数据可用。
 
 默认生成：
 
@@ -101,7 +103,7 @@ reports/qmt_api_official_<timestamp>.md
 - Python / xtquant 环境
 - MiniQMT 基础连接测试
 - `get_period_list()` 返回的实际周期
-- 每项测试的适用域 `domain_zh`、中文用途说明 `description_zh`、实际字段 `returned_fields`，以及 `status`、`api_available`、`permission`、`has_return_value`、`has_valid_sample`、耗时、摘要及异常信息
+- 每项测试的适用域 `domain_zh`、中文用途说明 `description_zh`、官方前置版本/权限 `official_prerequisite`、实际字段 `returned_fields`，以及 `status`、`api_available`、`permission`、`has_return_value`、`has_valid_sample`、订阅/回调两层证据、耗时、摘要及异常信息
 - 对“无数据”和“无权限”的保守判断
 
 报告状态仅使用 `PASS / EMPTY / NO_PERMISSION / UNSUPPORTED / ERROR / SKIP / NOT_TESTED`。其中 `SKIP` 表示接口已纳入完整性检查，但因会修改本地板块、属于阻塞接收循环、需要用户提供研究公式，或是超出“一类数据一个样本”的批量下载而未执行。

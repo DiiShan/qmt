@@ -1,16 +1,16 @@
 # MiniQMT / XtData 数据能力矩阵
 
-> 2026-08-23 兴业证券 MiniQMT 实机结果。范围仅限数据能力；一类数据只保留一个有效样本。完整逐项中文说明见 [`qmt权限-20260823版本.md`](qmt权限-20260823版本.md)。
+> 2026-08-23 兴业证券 MiniQMT 实机结果，已纳入二次审核补测。范围仅限 XtData；一类数据只保留一个有效样本。完整逐项中文说明见 [`qmt权限-20260823版本.md`](qmt权限-20260823版本.md)。
 
 | 类别 | API / period | 中文解释 | 代表代码 | 状态 | API/handler | 权限 | 返回/样本 | 下载/时段与证据 |
 |---|---|---|---|---|---|---|---|---|
 | 环境 | Python → XtData | 验证 Python 能导入并连接 MiniQMT 行情后端。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | Python 3.13.5、xtquant 250807.1.2。 |
 | 兼容性 | 客户端 build | 记录直接影响数据 API 的客户端与行情后端版本。 | - | PASS | 可读 | UNKNOWN | 有/有效 | MiniQMT 2.0.8.0 revision 634931；miniquote 1.0.0.10881。 |
-| 兼容性 | 包/后端评估 | 判断 Python surface 与 MiniQMT handler/schema 是否配套。 | - | ERROR | 部分兼容 | UNKNOWN | 有/无 | 22 条 handler-missing 证据、2 条 option schema mismatch。 |
+| 兼容性 | 包/后端评估 | 判断 Python surface 与 MiniQMT handler/schema 是否配套，并把普通接口和增值接口分开统计。 | - | ERROR | 部分兼容 | UNKNOWN | 有/无 | 23 条中性 handler/edition 证据（8 条有增值前置、15 条普通/未注明），4 条 option schema mismatch。 |
 | 周期清单 | `get_period_list` | 枚举运行时行情周期和特色数据。 | - | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
 | A 股 L1 | `1d/1m/5m/15m/30m/1h/1w/1mon/1q/1hy/1y/tick` | 读取股票各周期的一根 K 线或一条 tick。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 历史缓存不足时使用 7 日最小下载。 |
 | A 股快照 | `get_full_tick` | 读取当前缓存中的完整盘口快照。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 休市快照不等于实时 callback。 |
-| A 股实时 | `subscribe_quote` / `subscribe_quote2` | 订阅 tick，只有收到一次 callback 才算实时 PASS。 | `000001.SZ` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 正订阅号已取消；休市无 callback。 |
+| A 股实时 | `subscribe_quote` / `subscribe_quote2` | 使用 `count=0` 订阅 tick；只有 `time/stime` 通过新鲜度校验才算实时 PASS。 | `000001.SZ` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 正订阅号已取消；休市任意 callback=0、新鲜 callback=0。 |
 | K 线全推 | `get_full_kline` | 读取当日全推 K 线缓存。 | `000001.SZ` | UNSUPPORTED | 后端缺失/配置未知 | UNKNOWN | 无 | ErrorID 300000；K 线全推开关未知。 |
 | ETF 通用行情 | `1d/1m/tick` | 验证 ETF 通用历史行情。 | `510300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 三类均在最小下载后取得一笔。 |
 | ETF 快照 | `get_full_tick` | 读取 ETF 缓存快照。 | `510300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 20 字段 tick 对象。 |
@@ -28,15 +28,21 @@
 | 指数快照 | `get_full_tick` | 读取指数缓存快照。 | `000300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 tick 对象。 |
 | 指数权重 | `get_index_weight` | 读取指数成分和权重。 | `000300.SH` | EMPTY | 可调用 | UNKNOWN | 无 | 本地权重缓存为空。 |
 | 证券期权 | `1d/1m/full tick` | 验证证券期权历史 K 线和快照。 | `10011948.SHO` | PASS | 可用 | SUFFICIENT | 有/有效 | 历史 tick 仍为空。 |
+| 深证证券期权 | `1d/1m/tick/full tick` | 验证深交所证券期权这一独立市场域。 | `90007324.SZO` | PASS | 可用 | SUFFICIENT | 有/有效 | 1d/1m/tick 最小下载后均有一笔，full tick 有值。 |
+| 深证期权实时 | tick callback | 验证深证证券期权实时推送，而非缓存历史数据。 | `90007324.SZO` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | `count=0`；休市无新鲜 callback。 |
+| 中金所股指期权 | `1d/1m/tick` | 验证中金所金融期权这一独立市场域。 | `IO2609-C-4650.IF` | PASS | 可用 | SUFFICIENT | 有/有效 | 三类最小下载后均取得一笔；full tick 休市为空。 |
+| 中金所期权实时 | tick callback | 验证股指期权实时推送。 | `IO2609-C-4650.IF` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | `count=0`；休市无新鲜 callback。 |
 | 期权详情 | `get_option_detail_data` | 读取行权价、到期日、认购认沽等专用字段。 | 多类期权 | ERROR | Python 存在 | UNKNOWN | 无 | `CLIENT_SCHEMA_MISMATCH`。 |
 | 期权历史 helper | `get_his_option_list(_batch)` | 读取某日/区间的历史期权合约。 | `510300.SH` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
 | 期权映射 helper | `get_option_undl_data/get_option_list` | 建立标的映射并筛选期权列表。 | `510300.SH` | ERROR | Python 存在 | UNKNOWN | 无 | 同一 option schema mismatch。 |
 | 股指期货历史 | `1d/1m` | 读取中金所股指期货历史 K 线。 | `IF2609.IF` | PASS | 可用 | SUFFICIENT | 有/有效 | tick/full tick 休市为空。 |
 | 股指期货实时 | tick callback | 验证当前股指期货实时推送。 | `IC2612.IF` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 休市无 callback。 |
-| 商品期货 | `1d/1m/tick/full tick` | 验证三家交易所商品期货行情。 | `al2611.SF`、`c2701.DF`、`MA701.ZF` | EMPTY | 静态资料可用 | UNKNOWN | 无 | 最小下载后仍空。 |
-| 商品期货实时 | tick callback | 验证三家交易所商品期货实时推送。 | 同上 | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 三个正订阅号均取消；休市无 callback。 |
-| 商品期权 | `1d/1m/tick/full tick` | 验证三家交易所商品期权行情。 | 三个当前合约 | EMPTY | 静态资料可用 | UNKNOWN | 无 | 最小下载后仍空。 |
-| 商品期权实时 | tick callback | 验证三家交易所商品期权实时推送。 | 三个当前合约 | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 三个正订阅号均取消；休市无 callback。 |
+| 商品期货 | `1d/1m/tick/full tick` | 验证上期所、大商所、郑商所商品期货历史与快照。 | `al2611.SF`、`c2701.DF`、`MA701.ZF` | EMPTY | 静态资料可用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 商品期货实时 | tick callback | 使用 `count=0` 验证三家已发现交易所的期货实时推送。 | 同上 | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 三个正订阅号均取消；休市无新鲜 callback。 |
+| 商品期权 | `1d/1m/tick/full tick` | 验证上期所、大商所、郑商所商品期权历史与快照。 | 三个当前合约 | EMPTY | 静态资料可用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 商品期权实时 | tick callback | 使用 `count=0` 验证三家已发现交易所的期权实时推送。 | 三个当前合约 | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 三个正订阅号均取消；休市无新鲜 callback。 |
+| 上期能源 INE | `.INE` 期货/期权 | 验证上海国际能源交易中心的独立代码域。 | 未发现 | NOT_TESTED | 未确认 | NOT_TESTED | 无 | 运行时板块未提供合法当前合约；不伪造代码。 |
+| 广期所 GFEX | `.GF` 期货/期权 | 验证广州期货交易所的独立代码域。 | 未发现 | NOT_TESTED | 未确认 | NOT_TESTED | 无 | 运行时板块未提供合法当前合约；不伪造代码。 |
 | 财务 | 八张官方财务表 | 每张表读取一条记录。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 八表全部 PASS。 |
 | 除权 | `get_divid_factors` | 读取一条除权除息因子。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 8 个字段。 |
 | 交易日 | `get_trading_dates` | 读取一个市场交易日期。 | `SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回一个时间戳。 |
@@ -59,16 +65,24 @@
 | 港股通明细 | `hktdetails` | 读取港股通持股明细。 | `00700.HK` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
 | 港股通统计 | `hktstatistics` | 读取港股通持股统计。 | `00700.HK` | EMPTY | 可调用 | UNKNOWN | 无 | 最小下载后仍空。 |
 | 涨跌停价格 | `stoppricedata` | 读取证券涨跌停价格数据。 | `000001.SZ` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
-| 快照指标 | `snapshotindex` | 读取量比、涨速和换手等指标。 | `000001.SZ` | EMPTY | 可调用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 订单流 | `orderflow1m` | 下载并读取一条一分钟订单流基础数据；其余周期由 1m 合成。 | `000001.SZ` | EMPTY | 下载受理/读取为空 | UNKNOWN | 有/无 | 官方要求订单流版；命令受理不证明权限。 |
+| 订单流合成周期 | `orderflow5m/15m/30m/1h/1d` | 列出由 1m 基础数据合成的其他周期。 | `000001.SZ` | NOT_TESTED | 未重复读取 | NOT_TESTED | 无 | 遵循一类一笔；基础 1m 尚无样本。 |
+| 历史 ST 下载 | `download_his_st_data` | 下载历史 ST 状态专用文件。 | - | UNSUPPORTED | 后端/edition 不可用 | UNKNOWN | 无 | ErrorID 300000，中性原因码。 |
+| 历史 ST 读取 | `get_his_st_data` | 读取历史上确有 ST 记录股票的状态区间。 | `600198.SH` | EMPTY | 可调用 | UNKNOWN | 无 | 专用下载失败后返回空对象。 |
+| 快照指标 | `snapshotindex` | 按官网要求先订阅 VIP 快照指标，再等待新鲜 callback。 | `000001.SZ` | UNSUPPORTED | period 被拒绝 | UNKNOWN | 无 | `count=0` 订阅直接返回 invalid period。 |
 | 退市转债 | `delistchangebond` | 读取退市可转债资料。 | 转债 schema | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
 | 待发转债 | `replacechangebond` | 读取待发或替换可转债资料。 | 转债 schema | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
 | 历史主力合约 | `historymaincontract` | 读取期货历史主力合约映射。 | `IF00.IF` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
 | 历史期权合约 | `optionhistorycontract` | 读取历史期权合约资料。 | `XXXXXX.SHO` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
-| 港股/美股/外盘 | 通用行情 | 明确尚未验证的市场服务范围。 | - | NOT_TESTED | 未确认 | NOT_TESTED | 无 | 没有服务声明和 schema 验证样本。 |
+| 其他未覆盖市场 | 非 ETF 基金/LOF、普通债券、回购、BKZS、港股 L1/L2、美股、外盘 | 明确尚未取得服务声明或合法样本的市场域。 | - | NOT_TESTED | 未确认 | NOT_TESTED | 无 | 不把未测试写成无权限。 |
 
 ## 状态说明
 
 - `PASS` 必须有一个有效数据样本；命令受理会单独标注，不能代替数据结论。
 - `EMPTY` 不等于无权限；休市订阅为空尤其不能下权限结论。
 - `UNSUPPORTED` 需结合原因码区分 Python 方法缺失、后端 handler 缺失和 invalid period。
-- 实时订阅证据拆分为“订阅受理”和“收到 callback”；本轮 11 次受理、0 次 callback。
+- 实时订阅证据拆分为“订阅受理、任意 callback、新鲜 callback”；二次审核补测 13 次受理、0 次任意 callback、0 次新鲜 callback。
+
+## 官方前置条件口径
+
+生成的逐项 JSON/Markdown 为每条结果记录 `official_prerequisite`：普通/官网未注明额外版本、投研版、VIP/增值数据、订单流版、Level 2、港股 Level 2 或研究公式。ErrorID 300000 统一使用 `BACKEND_HANDLER_MISSING_OR_EDITION_UNAVAILABLE`，只有普通接口的 handler 缺失和 schema mismatch 才作为较强的包/后端兼容性风险；增值接口的 300000 不单独证明版本不匹配。
