@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from qmt_local_data.errors import QualityGateError
-from qmt_local_data.quality import enforce_quality, validate_daily_bars
+from qmt_local_data.quality import enforce_quality, validate_daily_bars, validate_security_master
 from qmt_local_data.transforms import (
     assign_financial_availability,
     build_historical_universe,
@@ -57,19 +57,39 @@ def test_normalize_future_accepts_xtquant_settlement_typo() -> None:
     assert frame.iloc[0]["settlement"] == 4003
 
 
-def test_security_master_ignores_xtquant_invalid_expiry_sentinel() -> None:
+@pytest.mark.parametrize(
+    "sentinel",
+    ["10001011", "10001111", "10011011", "10011111", "10111111"],
+)
+def test_security_master_ignores_known_xtquant_expiry_sentinels(sentinel) -> None:
     frame = normalize_instrument_details(
         {
             "688001.SH": {
                 "InstrumentName": "sample",
                 "OpenDate": "20190722",
-                "ExpireDate": "10011011",
+                "ExpireDate": sentinel,
             }
         }
     )
     assert frame.iloc[0]["list_date"] == date(2019, 7, 22)
     assert pd.isna(frame.iloc[0]["delist_date"])
     assert frame.iloc[0]["delist_date_quality"] == "INVALID_SENTINEL_IGNORED"
+
+
+def test_security_master_keeps_unknown_reverse_interval_for_quality_error() -> None:
+    frame = normalize_instrument_details(
+        {
+            "600000.SH": {
+                "InstrumentName": "invalid sample",
+                "OpenDate": "20200101",
+                "ExpireDate": "20191231",
+            }
+        }
+    )
+    assert frame.iloc[0]["delist_date"] == date(2019, 12, 31)
+    report = validate_security_master(frame)
+    with pytest.raises(QualityGateError, match="listing_interval=1"):
+        enforce_quality(report)
 
 
 def test_quality_gate_blocks_duplicate_and_invalid_ohlc() -> None:

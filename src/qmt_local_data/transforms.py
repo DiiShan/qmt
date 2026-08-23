@@ -29,6 +29,14 @@ MARKET_COLUMN_MAP = {
     "open_interest": "open_interest",
 }
 
+KNOWN_XTDATA_STOCK_EXPIRY_SENTINELS = {
+    "10001011",
+    "10001111",
+    "10011011",
+    "10011111",
+    "10111111",
+}
+
 
 def _parse_date_series(values: pd.Series) -> pd.Series:
     if pd.api.types.is_datetime64_any_dtype(values):
@@ -128,8 +136,10 @@ def normalize_instrument_details(details: dict[str, dict[str, Any]], asset: str 
             )
         else:
             list_date = _parse_detail_date(detail.get("OpenDate") or detail.get("CreateDate"))
-            delist_date = _parse_detail_date(detail.get("ExpireDate") or detail.get("DelistDate"))
-            if delist_date is not None and list_date is not None and delist_date < list_date:
+            delist_raw = detail.get("ExpireDate") or detail.get("DelistDate")
+            delist_digits = re.sub(r"\D", "", str(delist_raw))[:8] if delist_raw else ""
+            delist_date = _parse_detail_date(delist_raw)
+            if delist_digits in KNOWN_XTDATA_STOCK_EXPIRY_SENTINELS:
                 delist_date = None
                 delist_quality = "INVALID_SENTINEL_IGNORED"
             elif delist_date is None:
