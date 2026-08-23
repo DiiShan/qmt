@@ -64,7 +64,7 @@ download_history_contracts: completed
 | 时间一致性 | 未通过 | 历史 universe 无法完成四年份验证 |
 | 来源可追溯性 | 部分通过 | 实机报告与版本已记录，但退市元数据来源缺失 |
 | PIT 财务语义 | 代码已验证 | 不消除历史证券全集缺失风险 |
-| 期货历史样本 | 可用 | 过期真实合约发现和日线已验证 |
+| 期货历史样本 | 不合格 | 仅发现 12 个近期 IF/IH/IC 合约；没有 IM 或完整历史合约主表 |
 | 全量数据库验收 | 阻断 | Phase 0 五项硬门槛未全部 PASS |
 
 ## 4. 风险登记
@@ -77,6 +77,8 @@ download_history_contracts: completed
 | OPS-001 | 2011 年起全量数据库无法开工 | 确定 | 中 | HIGH | 保留已完成代码和样本证据 |
 | SRC-001 | 引入外部证券主表后口径不一致 | 中 | 中 | MEDIUM | 要求来源、版本、上市/退市日对账 |
 | CODE-001 | 发现逻辑未显式区分当前板块与过期板块 | 高 | 中 | HIGH | 后续修复时增加专门 fixture 和实机验证 |
+| FUT-001 | CFFEX 历史合约枚举不完整 | 确定 | 高 | HIGH | 禁止把当前 12 个代码解释为完整期货库 |
+| FUT-002 | XtData 为合约上市前日期返回空价格/零成交占位行 | 确定 | 高 | HIGH | 暂停使用期货主力与基差视图进行正式回测 |
 
 ## 5. 使用限制
 
@@ -89,6 +91,8 @@ download_history_contracts: completed
 - 经项目负责人确认，可以构建临时部分库，但必须标记 `CURRENT_UNIVERSE_ONLY`，且不得与
   正式无偏回测库混用；
 - 临时股票池必须命名为 `CURRENT_SURVIVORS`，不得命名为 `ALL_A`。
+- 当前 `future_daily`、`future_main_mapping`、`future_basis_daily` 仅供诊断；在 FUT-001/FUT-002
+  关闭前，不得用于正式期货策略、换月收益或基差回测结论。
 
 ## 6. 后续处置方案
 
@@ -102,6 +106,9 @@ download_history_contracts: completed
 6. 修复程序发现逻辑：当前板块与过期板块分别读取后做 union，不再依赖普通 A 股板块的
    历史日期差集；
 7. 重新执行 Phase 0，并更新本报告状态。
+
+期货历史库另行执行：取得权威 IF/IH/IC/IM 历史合约主表；按真实生命周期下载日线；
+过滤 `trade_date < list_date`、到期后记录、空价格和零占位记录；重建主力映射与基差，并抽查换月。
 
 ## 7. 风险关闭标准
 
@@ -124,5 +131,6 @@ download_history_contracts: completed
 | 2026-08-23 | 保持 Phase 0 硬门禁，不启动全量初始化 | ACTIVE |
 | 2026-08-23 | 接受已记录风险，批准初始化 `CURRENT_UNIVERSE_ONLY` 临时库 | APPROVED_WITH_RISK |
 | 2026-08-23 | 实机发现 602 条当前证券使用 `10001011/10001111/10011011/10011111/10111111` 五种上游 ExpireDate 哨兵值；仅对该白名单标准化为 NULL 并保留质量标记 | MITIGATED |
+| 2026-08-23 | 实机确认“中金所”板块仅暴露 12 个近期 IF/IH/IC 合约，无 IM/完整历史；上市前日期存在空价格和零成交占位行，暂停正式使用期货派生视图 | OPEN |
 
 下次复核日期由项目负责人在完成 MiniQMT 过期合约列表下载/重启或取得替代证券主表后确定。

@@ -26,6 +26,9 @@ Factor / Strategy / Backtest / Risk
 [`docs/DATA_ROOT_README.md`](docs/DATA_ROOT_README.md)。初始化完成后，该文件也会复制为
 `E:\qmt_data\README.md`，方便直接在数据目录中查看。
 
+面向 AI 策略编程的数据状态检查、Python API、DuckDB SQL、视图契约与禁止事项见
+[`docs/DATA_ACCESS_GUIDE.md`](docs/DATA_ACCESS_GUIDE.md)。
+
 执行级、经过独立 Review 收敛的计划见 [`本地数据库构建计划_codex.md`](本地数据库构建计划_codex.md)。数据库 v1 代码位于 `src/qmt_local_data/`，默认数据根目录为 `E:\qmt_data`；可在本地配置中修改，但源码不硬编码其他机器路径。
 
 第一阶段优先建设 **全 A 股日线 + 财务八表 + 复权/状态/交易日历 + 主要指数 + CFFEX 股指期货实际合约 + 本地 DuckDB/Parquet 数据底座**，分钟、tick、期权和实时能力后置到策略确有需要时再扩展。
