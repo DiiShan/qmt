@@ -30,6 +30,28 @@ DuckDB 查询层只读取 active manifest 指向的 Parquet 文件；目录中�
 
 ## 2. 顶层目录
 
+这 7 个目录是同一套数据库在不同处理阶段和不同职责下的分层：
+
+| 目录 | 一句话含义 | 日常是否直接使用 |
+|---|---|---|
+| `database` | DuckDB 查询入口；保存视图定义和活动 Parquet 文件引用，不复制全部行情数据 | **是，策略/AI 的主要入口** |
+| `derived` | 从标准数据计算出的历史股票池、期货主力映射和基差等派生结果 | 按研究需要使用 |
+| `metadata` | 数据库状态、active manifest、checkpoint、容量审计和写入锁等控制信息 | 程序启动时检查，不手改 |
+| `processed` | Raw 经字段统一、类型转换和质量校验后的标准数据 | 由 DuckDB 视图读取 |
+| `quarantine` | 从活动路径隔离的中断或异常文件，不属于当前有效数据库 | 不参与查询 |
+| `raw` | 从 XtData 读取、尽量保留上游形态的原始数据，用于审计和重新加工 | 通常不直接用于策略 |
+| `staging` | 新批次发布前的临时写入区；成功后原子移动到正式层 | 不参与查询 |
+
+处理流程是：
+
+```text
+MiniQMT/XtData → staging → raw → processed → derived
+                                      ↓          ↓
+                                database/qmt.duckdb 统一查询
+
+metadata 管理整个流程；quarantine 隔离不再参与活动版本的文件。
+```
+
 ```text
 E:\qmt_data\
 ├─ raw\          # 原始层：尽量保留 XtData 返回形态
@@ -63,6 +85,16 @@ raw\stock_daily\run_id=<运行标识>\
 
 `data.parquet` 是 Zstd 压缩的列式数据；`SUCCESS` 表示该运行目录已完整发布。
 
+这里的 Raw 不是“市场上从 2011 年至今的一切数据”。当前 Raw 的准确范围是：
+
+- 5,556 只**当前仍上市** A 股的日线，请求区间为 2011-01-01 至 2026-08-23，
+  实际交易日为 2011-01-04 至 2026-08-21；每只股票只会从其真实上市后开始有行情；
+- 上述当前股票对应的八类财务数据和 corporate action 原始数据；
+- 5 个主要指数日线；
+- 12 个近期中金所合约的诊断数据。
+
+它不包含已退市 A 股、完整历史期货、分钟/Tick/盘口/逐笔数据，也不代表交易所所有可获得数据。
+
 ### `processed/`：标准层
 
 保存可直接用于查询、校验和派生计算的标准化数据。主要数据集：
@@ -84,6 +116,18 @@ Raw 与 Processed 同时保留是有意设计：Raw 用于追溯，Processed 用
 - `future_basis_daily`：期货相对现货指数的基差。
 
 ### `database/`：DuckDB 查询入口
+
+“主要保存视图，不复制全部数据”的意思是：`qmt.duckdb` 保存类似下面的查询规则，
+真正的数百万行数据仍在 `processed` 和 `derived` 的 Parquet 文件中。
+
+```text
+daily_bar 视图
+    └─ 指向 metadata 中 active manifest 列出的 processed/stock_daily/*.parquet
+```
+
+当策略执行 `SELECT * FROM daily_bar ...` 时，DuckDB 才读取这些外部 Parquet 文件，并按业务主键
+选择最新活动记录。因此 `qmt.duckdb` 只有约 0.5 MiB 是正常现象；删除或移动活动 Parquet 后，
+对应视图也会失去数据。
 
 `database/qmt.duckdb` 主要保存 Catalog、View 和刷新日志。实际大数据仍在 Parquet 中，
 因此 DuckDB 文件很小是正常现象，不代表数据库为空。
@@ -156,6 +200,16 @@ corporate-action 初始化，约 68.6 MiB。它不参与 DuckDB 查询，也不�
 | 其他活动数据与 metadata | 约 5 MiB |
 | `quarantine/`（不参与查询） | 68.63 MiB |
 | `E:\qmt_data` 合计 | 约 1.412 GiB |
+
+Raw 与 Processed 的确各保存了一份逻辑数据，但“保存两份”不等于“保存两份未压缩 CSV”：
+
+- 股票日线 Raw：16,350,700 行、262.08 MiB，约 16.8 bytes/行；
+- 股票日线 Processed：16,350,700 行、254.50 MiB，约 16.3 bytes/行；
+- 财务 Raw + Processed：合计约 842.17 MiB；
+- 整个 Raw 约 0.690 GiB，整个 Processed 约 0.640 GiB，两层合计约 1.330 GiB。
+
+股票代码、日期和数值列重复度很高，Parquet 的列式编码加 Zstd 压缩可以把逻辑数据大幅压缩。
+所以当前范围内 Raw + Processed 约 1.33 GiB 是可解释的；但当前范围本身仍不是原计划的完整历史市场范围。
 
 偏差来源：
 
