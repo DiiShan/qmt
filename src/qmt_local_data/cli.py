@@ -69,20 +69,21 @@ def _run_init(args: argparse.Namespace, config, client: XtDataClient) -> int:
     with ProjectLock(config.data_root):
         builder.build_trade_calendar("SH", start, end)
         current_codes = client.discover_codes(config.markets.stock_sectors, config.markets.stock_suffixes)
-        delisted, expired_futures = client.discover_historical_candidates(config.futures.products)
+        delisted, _ = client.discover_historical_candidates(config.futures.products)
+        futures = client.discover_cffex_contracts(config.futures.products)
         stock_codes = sorted(set(current_codes) | set(delisted))
         builder.build_security_master(stock_codes, asset="stock")
         builder.build_universe()
         builder.ingest_market(stock_codes, "stock", start, end, download=True)
         builder.ingest_market(config.markets.indexes, "index", start, end, download=True)
-        if expired_futures:
-            builder.build_security_master(expired_futures, asset="future")
-            builder.ingest_market(expired_futures, "future", start, end, download=True)
+        if futures:
+            builder.build_security_master(futures, asset="future")
+            builder.ingest_market(futures, "future", start, end, download=True)
         calendar = builder.store.read_active_frame("processed", "trade_calendar", ["market", "trade_date"])
         if not args.skip_financial:
             builder.ingest_financial(stock_codes, calendar, start, end, download=True)
         builder.ingest_dividend_factors(stock_codes, start, end)
-        if expired_futures:
+        if futures:
             builder.build_futures_derived()
         builder.refresh_catalog()
         builder.write_storage_audit()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import hashlib
+import re
 from datetime import date
 from typing import Any, Iterable, Iterator
 
@@ -205,6 +205,9 @@ def _financial_record_keys(frame: pd.DataFrame) -> list[str]:
         "m_stateTypeCode",
         "reportDate",
         "announceTime",
+        "endDate",
+        "declareDate",
+        "rank",
     ]
     columns = [column for column in candidates if column in frame.columns]
     if not columns:
@@ -215,8 +218,10 @@ def _financial_record_keys(frame: pd.DataFrame) -> list[str]:
 
 def assign_financial_availability(financial: pd.DataFrame, trading_calendar: pd.DataFrame) -> pd.DataFrame:
     result = financial.copy()
-    report_candidates = ["report_period", "reportDate", "m_timetag", "date"]
-    announce_candidates = ["announce_date", "announceTime", "m_anntime", "publishDate"]
+    if "table_name" not in result.columns:
+        result["table_name"] = "UNKNOWN"
+    report_candidates = ["report_period", "reportDate", "m_timetag", "endDate", "date"]
+    announce_candidates = ["announce_date", "announceTime", "m_anntime", "declareDate", "publishDate"]
     report_col = next((name for name in report_candidates if name in result.columns), None)
     announce_col = next((name for name in announce_candidates if name in result.columns), None)
     if report_col is None or announce_col is None:
@@ -235,6 +240,25 @@ def assign_financial_availability(financial: pd.DataFrame, trading_calendar: pd.
 
     result["available_date"] = result["announce_date"].map(next_day)
     result["pit_quality"] = np.where(result["announce_date"].isna(), "MISSING_ANNOUNCE_DATE", "VALID")
+    detail_key = pd.Series("", index=result.index, dtype="string")
+    detail_tables = result["table_name"].isin(["Top10Holder", "Top10FlowHolder"])
+    if detail_tables.any():
+        if "rank" not in result.columns:
+            raise ValueError("Top shareholder financial data lacks rank for its logical record key")
+        detail_key.loc[detail_tables] = result.loc[detail_tables, "rank"].astype("string").fillna("<NULL>")
+
+    logical_payload = (
+        result["stock_code"].astype("string").fillna("<NULL>")
+        + "\x1f"
+        + result["table_name"].astype("string").fillna("<NULL>")
+        + "\x1f"
+        + result["report_period"].astype("string").fillna("<NULL>")
+        + "\x1f"
+        + detail_key
+    )
+    source_payload = logical_payload + "\x1f" + result["announce_date"].astype("string").fillna("<NULL>")
+    result["logical_record_key"] = logical_payload.map(lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest())
+    result["source_record_key"] = source_payload.map(lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest())
     return result
 
 

@@ -57,4 +57,4 @@ class DatasetManifest:
 
 
 def utc_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.now().astimezone().isoformat(timespec="microseconds")

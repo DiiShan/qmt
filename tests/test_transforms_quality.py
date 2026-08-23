@@ -84,6 +84,33 @@ def test_financial_availability_is_next_open_day() -> None:
     assert result.iloc[0]["available_date"] == date(2026, 5, 6)
 
 
+def test_top_holder_rows_have_distinct_logical_keys_but_revisions_share_them() -> None:
+    calendar = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 3, 2), date(2026, 4, 2)],
+            "is_open": [True, True],
+        }
+    )
+    financial = pd.DataFrame(
+        {
+            "stock_code": ["000001.SZ"] * 4,
+            "table_name": ["Top10FlowHolder"] * 4,
+            "endDate": ["20251231"] * 4,
+            "declareDate": ["20260301", "20260301", "20260401", "20260401"],
+            "rank": [1, 2, 1, 2],
+            "quantity": [100.0, 80.0, 110.0, 85.0],
+        }
+    )
+    result = assign_financial_availability(financial, calendar)
+    rank1 = result[result["rank"] == 1]
+    rank2 = result[result["rank"] == 2]
+
+    assert rank1["logical_record_key"].nunique() == 1
+    assert rank2["logical_record_key"].nunique() == 1
+    assert rank1.iloc[0]["logical_record_key"] != rank2.iloc[0]["logical_record_key"]
+    assert result["source_record_key"].nunique() == 4
+
+
 def test_historical_universe_respects_listing_interval() -> None:
     master = pd.DataFrame(
         {

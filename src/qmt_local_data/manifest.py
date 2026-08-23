@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -13,21 +14,29 @@ import pyarrow.parquet as pq
 
 from .atomic import atomic_publish_directory, atomic_write_json, sha256_file
 from .models import DatasetManifest, FileRecord, RunStatus, utc_now
+from .errors import StorageLimitError
+from .storage_guard import StorageGuard
 
 PublishMode = Literal["append", "replace"]
 
 
 def new_run_id() -> str:
-    stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%z")
+    stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f%z")
     return f"{stamp}-{uuid.uuid4().hex[:12]}"
 
 
 class ManifestStore:
     """Publishes immutable Parquet components and atomically advances active metadata."""
 
-    def __init__(self, data_root: Path, compression: str = "zstd") -> None:
+    def __init__(
+        self,
+        data_root: Path,
+        compression: str = "zstd",
+        storage_guard: StorageGuard | None = None,
+    ) -> None:
         self.data_root = data_root
         self.compression = compression
+        self.storage_guard = storage_guard
 
     def _metadata_dir(self, layer: str, dataset: str) -> Path:
         return self.data_root / "metadata" / "manifests" / layer / dataset
@@ -64,6 +73,10 @@ class ManifestStore:
         if mode not in {"append", "replace"}:
             raise ValueError(f"Unsupported publish mode: {mode}")
 
+        estimated_bytes = max(64 * 1024, int(frame.memory_usage(index=True, deep=True).sum() * 1.5))
+        if self.storage_guard:
+            self.storage_guard.enforce(estimated_bytes)
+
         run_id = run_id or new_run_id()
         previous = self.load_active(layer, dataset)
         started = utc_now()
@@ -94,8 +107,14 @@ class ManifestStore:
             # A component is complete before it can become reachable from active.json.
             # Writing this in staging also makes the directory rename publish it atomically.
             (staging / "SUCCESS").write_text(run_id, encoding="utf-8")
+            if self.storage_guard:
+                self.storage_guard.enforce(0)
             atomic_publish_directory(staging, final)
-        except Exception:
+        except Exception as exc:
+            if staging.exists():
+                shutil.rmtree(staging)
+            if isinstance(exc, StorageLimitError):
+                raise
             failure = DatasetManifest(
                 run_id=run_id,
                 dataset=dataset,

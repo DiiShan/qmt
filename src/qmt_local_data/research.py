@@ -155,7 +155,7 @@ class ResearchData:
             SELECT * EXCLUDE (_pit_version)
             FROM (
                 SELECT *, ROW_NUMBER() OVER (
-                    PARTITION BY stock_code, table_name, report_period
+                    PARTITION BY logical_record_key
                     ORDER BY available_date DESC, announce_date DESC, _ingested_at DESC
                 ) AS _pit_version
                 FROM financial_pit

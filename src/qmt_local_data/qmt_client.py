@@ -116,18 +116,10 @@ class XtDataClient:
                 except Exception:
                     continue
 
-        derivative_sectors = [
-            sector
-            for sector in sectors
-            if any(token in sector for token in ("退市", "历史", "过期", "中金所", "股指期货"))
-        ]
-        derivative_codes = self.discover_codes(derivative_sectors or sectors)
-        stock_pattern = re.compile(r"^\d{6}\.(SH|SZ|BJ)$", re.IGNORECASE)
-        product_pattern = re.compile(rf"^({'|'.join(re.escape(value) for value in products)})\d{{4}}\.IF$", re.IGNORECASE)
+        futures = self.discover_cffex_contracts(products)
         delisted: list[str] = []
-        futures: list[str] = []
         for code in sorted(historical_stocks - current_stocks):
-            if not stock_pattern.match(code):
+            if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", code, re.IGNORECASE):
                 continue
             try:
                 detail = self.instrument_detail(code)
@@ -136,17 +128,28 @@ class XtDataClient:
             if detail:
                 delisted.append(code)
 
-        for code in derivative_codes:
-            if not product_pattern.match(code):
-                continue
+        expired: list[str] = []
+        for code in futures:
             try:
                 detail = self.instrument_detail(code)
             except Exception:
                 continue
             expiry = str(detail.get("ExpireDate") or "").replace("-", "")[:8]
             if expiry and expiry != "0" and expiry < today:
-                futures.append(code)
-        return sorted(set(delisted)), sorted(set(futures))
+                expired.append(code)
+        return sorted(set(delisted)), sorted(set(expired))
+
+    def discover_cffex_contracts(self, products: Iterable[str]) -> list[str]:
+        """Return every runtime-visible real IF/IH/IC/IM contract, regardless of expiry."""
+        sectors = self.sector_list()
+        derivative_sectors = [
+            sector
+            for sector in sectors
+            if any(token in sector for token in ("退市", "历史", "过期", "中金所", "股指期货"))
+        ]
+        derivative_codes = self.discover_codes(derivative_sectors or sectors)
+        product_pattern = re.compile(rf"^({'|'.join(re.escape(value) for value in products)})\d{{4}}\.IF$", re.IGNORECASE)
+        return sorted({code for code in derivative_codes if product_pattern.match(code)})
 
     def disconnect(self) -> None:
         if hasattr(self.xtdata, "disconnect"):

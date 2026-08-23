@@ -59,9 +59,9 @@ class DatabaseBuilder:
     def __init__(self, config: DataConfig, client: XtDataClient) -> None:
         self.config = config
         self.client = client
-        self.store = ManifestStore(config.data_root, config.project.compression)
-        self.checkpoints = CheckpointStore(config.data_root)
         self.storage = StorageGuard(config.data_root, config.storage)
+        self.store = ManifestStore(config.data_root, config.project.compression, self.storage)
+        self.checkpoints = CheckpointStore(config.data_root)
 
     def build_trade_calendar(self, market: str, start: date, end: date) -> str:
         values = self.client.trading_dates(market, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"))
@@ -156,6 +156,7 @@ class DatabaseBuilder:
                 source_version=self.client.source_version,
                 metadata={"batch_id": batch_id, "quality": quality.to_dict()},
             )
+            self.storage.enforce(64 * 1024)
             self.checkpoints.mark_complete(
                 dataset, batch_id, fingerprint, [raw_manifest.run_id, processed_manifest.run_id]
             )
@@ -288,9 +289,13 @@ class DatabaseBuilder:
         return mapping_manifest.run_id, basis_manifest.run_id
 
     def refresh_catalog(self) -> list[str]:
-        return CatalogBuilder(self.store, self.config.data_root / "database" / "qmt.duckdb").refresh()
+        self.storage.enforce(16 * 1024 * 1024)
+        created = CatalogBuilder(self.store, self.config.data_root / "database" / "qmt.duckdb").refresh()
+        self.storage.enforce(0)
+        return created
 
     def write_storage_audit(self) -> Path:
+        self.storage.enforce(64 * 1024)
         snapshot = self.storage.snapshot()
         files = []
         for path in self.config.data_root.rglob("*") if self.config.data_root.exists() else []:
