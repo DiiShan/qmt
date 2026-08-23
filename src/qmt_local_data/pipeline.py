@@ -248,22 +248,37 @@ class DatabaseBuilder:
 
     def ingest_dividend_factors(self, codes: Iterable[str], start: date, end: date) -> list[str]:
         runs: list[str] = []
-        for code in sorted(set(codes)):
-            value = self.client.dividend_factors(code, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"))
-            frame = value.copy() if isinstance(value, pd.DataFrame) else pd.DataFrame(value)
-            if frame.empty:
+        for batch_index, batch in enumerate(
+            batched(sorted(set(codes)), self.config.ingestion.initial_batch_size), start=1
+        ):
+            frames: list[pd.DataFrame] = []
+            included_codes: list[str] = []
+            for code in batch:
+                value = self.client.dividend_factors(
+                    code, start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+                )
+                frame = value.copy() if isinstance(value, pd.DataFrame) else pd.DataFrame(value)
+                if frame.empty:
+                    continue
+                if not isinstance(frame.index, pd.RangeIndex):
+                    frame = frame.reset_index()
+                frame["stock_code"] = code
+                frames.append(frame)
+                included_codes.append(code)
+            if not frames:
                 continue
-            if not isinstance(frame.index, pd.RangeIndex):
-                frame = frame.reset_index()
-            frame["stock_code"] = code
+            combined = pd.concat(frames, ignore_index=True, sort=False)
             manifest = self.store.publish_frame(
                 "raw",
                 "corporate_action",
-                frame,
+                combined,
                 "1.0",
                 mode="append",
                 source_version=self.client.source_version,
                 metadata={
+                    "batch_index": batch_index,
+                    "codes": included_codes,
+                    "code_count": len(included_codes),
                     "normalization_status": "RAW_ONLY_PENDING_FACTOR_SEMANTICS_VALIDATION",
                     "universe_scope": self.universe_scope,
                 },

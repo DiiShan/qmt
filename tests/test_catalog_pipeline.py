@@ -39,6 +39,16 @@ class FakeClient:
         raise AssertionError("download should not be called")
 
 
+class DividendClient(FakeClient):
+    def dividend_factors(self, code, start="", end=""):
+        if code == "000002.SZ":
+            return pd.DataFrame()
+        return pd.DataFrame(
+            {"interest": [1.0]},
+            index=pd.Index(["20250101"], name="time"),
+        )
+
+
 def test_catalog_deduplicates_append_runs(data_config) -> None:
     store = ManifestStore(data_config.data_root)
     base = pd.DataFrame({"trade_date": [date(2026, 1, 5)], "stock_code": ["000001.SZ"], "close": [10.0]})
@@ -65,6 +75,30 @@ def test_market_pipeline_checkpoint_makes_resume_idempotent(data_config) -> None
     assert second == []
     active = builder.store.read_active_frame("processed", "stock_daily", ["trade_date", "stock_code"])
     assert len(active) == 2
+
+
+def test_dividend_factors_publish_one_file_per_configured_batch(data_config) -> None:
+    builder = DatabaseBuilder(
+        data_config,
+        DividendClient(),
+        universe_scope="CURRENT_UNIVERSE_ONLY",
+    )
+
+    runs = builder.ingest_dividend_factors(
+        ["000004.SZ", "000003.SZ", "000002.SZ", "000001.SZ"],
+        date(2025, 1, 1),
+        date(2026, 1, 1),
+    )
+
+    manifest = builder.store.load_active("raw", "corporate_action")
+    frame = builder.store.read_active_frame("raw", "corporate_action", ["stock_code"])
+    assert len(runs) == 2
+    assert manifest is not None
+    assert len(manifest.files) == 2
+    assert manifest.metadata["batch_index"] == 2
+    assert manifest.metadata["code_count"] == 2
+    assert manifest.metadata["normalization_status"] == "RAW_ONLY_PENDING_FACTOR_SEMANTICS_VALIDATION"
+    assert sorted(frame["stock_code"].tolist()) == ["000001.SZ", "000003.SZ", "000004.SZ"]
 
 
 def test_current_universe_scope_cannot_publish_all_a(data_config) -> None:
