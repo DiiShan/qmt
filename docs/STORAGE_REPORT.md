@@ -9,6 +9,7 @@ project_data_size
 qmt_cache_size
 staging_temp_size
 free_disk_space
+qmt_cache_free_disk_space
 projected_bytes
 projected_total
 top_20_files

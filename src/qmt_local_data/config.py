@@ -37,6 +37,7 @@ class IngestionConfig:
     max_retries: int
     retry_backoff_seconds: tuple[int, ...]
     revision_lookback_trade_days: int
+    financial_download_batch_reserve_mb: int = 256
 
 
 @dataclass(frozen=True)
@@ -125,9 +126,16 @@ def load_config(path: str | Path) -> DataConfig:
         max_retries=int(_required(ingestion_raw, "max_retries", "ingestion")),
         retry_backoff_seconds=tuple(int(v) for v in ingestion_raw.get("retry_backoff_seconds", [])),
         revision_lookback_trade_days=int(ingestion_raw.get("revision_lookback_trade_days", 10)),
+        financial_download_batch_reserve_mb=int(
+            ingestion_raw.get("financial_download_batch_reserve_mb", 256)
+        ),
     )
-    if ingestion.initial_batch_size <= 0 or ingestion.max_retries < 0:
-        raise ConfigurationError("Batch size must be positive and retries non-negative")
+    if (
+        ingestion.initial_batch_size <= 0
+        or ingestion.max_retries < 0
+        or ingestion.financial_download_batch_reserve_mb <= 0
+    ):
+        raise ConfigurationError("Batch size/reserve must be positive and retries non-negative")
 
     return DataConfig(
         project=ProjectConfig(

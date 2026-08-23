@@ -20,14 +20,16 @@
 财务数据至少包含：
 
 ```text
-stock_code, table_name, source_record_key, logical_record_key, report_period, announce_date,
+stock_code, table_name, source_record_key, logical_record_key, snapshot_version_key,
+report_period, announce_date,
 available_date, pit_quality, source_run_id, _ingested_at
 ```
 
 仅有公告日期时，`available_date` 是公告日后的首个交易日。`announce_date` 缺失的记录默认不进入 PIT 查询。
-`source_record_key` 区分公告版本；`logical_record_key` 区分同一业务明细。Top10Holder 和
-Top10FlowHolder 使用报告期内的 `rank` 区分十条明细，PIT 查询按逻辑明细淘汰旧修订，
-不会把同一报告期压缩为一行。
+`source_record_key` 区分公告版本中的明细；`logical_record_key` 区分同一业务明细；
+`snapshot_version_key` 标识整份公告快照。Top10Holder 和 Top10FlowHolder 使用报告期内的
+`rank` 区分明细，但 PIT 查询先选择最新整份公告快照再返回其中全部 rank，避免把不同公告
+拼成一个不存在的混合快照。
 
 研究代码应通过 `ResearchData.get_financial_pit(codes, as_of)` 读取；该接口只返回
 `available_date <= as_of` 的最新公告版本，避免直接扫描全历史财务表造成未来函数。

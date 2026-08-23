@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import re
 from datetime import date
+from pathlib import Path
 from typing import Any, Iterable, Protocol
 
 
@@ -33,6 +34,17 @@ class XtDataClient:
     def instrument_detail(self, code: str) -> dict[str, Any]:
         value = self.xtdata.get_instrument_detail(code, True)
         return value if isinstance(value, dict) else {}
+
+    @property
+    def data_dir(self) -> Path | None:
+        getter = getattr(self.xtdata, "get_data_dir", None)
+        if getter is None:
+            return None
+        try:
+            value = getter()
+            return Path(value) if value else None
+        except Exception:
+            return None
 
     def market_data(
         self, codes: list[str], period: str, start: str = "", end: str = "", count: int = -1

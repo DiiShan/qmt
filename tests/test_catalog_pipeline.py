@@ -83,15 +83,16 @@ def test_research_api_enforces_point_in_time_and_mapping_semantics(data_config) 
         "financial",
         pd.DataFrame(
             {
-                "stock_code": ["000001.SZ"] * 4,
-                "table_name": ["Top10Holder"] * 4,
-                "source_record_key": ["rank1-v1", "rank2-v1", "rank1-v2", "rank2-v2"],
-                "logical_record_key": ["rank1", "rank2", "rank1", "rank2"],
-                "report_period": [date(2025, 12, 31)] * 4,
-                "announce_date": [date(2026, 3, 1), date(2026, 3, 1), date(2026, 4, 1), date(2026, 4, 1)],
-                "available_date": [date(2026, 3, 2), date(2026, 3, 2), date(2026, 4, 2), date(2026, 4, 2)],
-                "rank": [1, 2, 1, 2],
-                "quantity": [100.0, 80.0, 110.0, 85.0],
+                "stock_code": ["000001.SZ"] * 3,
+                "table_name": ["Top10Holder"] * 3,
+                "source_record_key": ["rank1-v1", "rank2-v1", "rank1-v2"],
+                "logical_record_key": ["rank1", "rank2", "rank1"],
+                "snapshot_version_key": ["snapshot-v1", "snapshot-v1", "snapshot-v2"],
+                "report_period": [date(2025, 12, 31)] * 3,
+                "announce_date": [date(2026, 3, 1), date(2026, 3, 1), date(2026, 4, 1)],
+                "available_date": [date(2026, 3, 2), date(2026, 3, 2), date(2026, 4, 2)],
+                "rank": [1, 2, 1],
+                "quantity": [100.0, 80.0, 110.0],
             }
         ),
         "1.0",
@@ -118,8 +119,8 @@ def test_research_api_enforces_point_in_time_and_mapping_semantics(data_config) 
     early = research.get_financial_pit(["000001.SZ"], date(2026, 3, 31))
     late = research.get_financial_pit(["000001.SZ"], date(2026, 4, 30))
     assert len(early) == 2
-    assert len(late) == 2
+    assert len(late) == 1
     assert dict(zip(early["rank"], early["quantity"])) == {1: 100.0, 2: 80.0}
-    assert dict(zip(late["rank"], late["quantity"])) == {1: 110.0, 2: 85.0}
+    assert dict(zip(late["rank"], late["quantity"])) == {1: 110.0}
     mapping = research.get_future_main(["IF"], "NEXT_TRADE_DAY")
     assert mapping.iloc[0]["effective_trade_date"].date() == date(2026, 1, 6)

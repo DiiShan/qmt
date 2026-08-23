@@ -14,6 +14,12 @@ from qmt_local_data.pipeline import DatabaseBuilder
 class FinancialClient:
     source_version = "fake"
 
+    def __init__(self):
+        self.download_called = False
+
+    def download_financial(self, codes, tables, start, end):
+        self.download_called = True
+
     def financial_data(self, codes, tables, start, end, report_type):
         return {
             codes[0]: {
@@ -46,6 +52,17 @@ def test_financial_publish_is_blocked_before_active_switch(data_config) -> None:
         )
     assert builder.store.load_active("raw", "financial") is None
     assert builder.store.load_active("processed", "financial") is None
+
+
+def test_financial_download_reserve_blocks_before_qmt_cache_write(data_config) -> None:
+    client = FinancialClient()
+    builder = DatabaseBuilder(_blocked_config(data_config), client)
+    calendar = pd.DataFrame({"trade_date": [date(2026, 3, 2)], "is_open": [True]})
+    with pytest.raises(StorageLimitError):
+        builder.ingest_financial(
+            ["000001.SZ"], calendar, date(2025, 1, 1), date(2026, 3, 2), download=True
+        )
+    assert not client.download_called
 
 
 def test_universe_publish_is_blocked_before_active_switch(data_config) -> None:

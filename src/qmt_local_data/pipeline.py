@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from itertools import islice
 from pathlib import Path
@@ -59,7 +59,9 @@ class DatabaseBuilder:
     def __init__(self, config: DataConfig, client: XtDataClient) -> None:
         self.config = config
         self.client = client
-        self.storage = StorageGuard(config.data_root, config.storage)
+        cache_path = config.storage.qmt_cache_path or getattr(client, "data_dir", None)
+        storage_config = replace(config.storage, qmt_cache_path=cache_path)
+        self.storage = StorageGuard(config.data_root, storage_config)
         self.store = ManifestStore(config.data_root, config.project.compression, self.storage)
         self.checkpoints = CheckpointStore(config.data_root)
 
@@ -177,12 +179,15 @@ class DatabaseBuilder:
         runs: list[str] = []
         for batch in batched(sorted(set(codes)), self.config.ingestion.initial_batch_size):
             if download:
+                reserve = self.config.ingestion.financial_download_batch_reserve_mb * 1024 * 1024
+                self.storage.enforce(reserve)
                 self.client.download_financial(
                     batch,
                     list(self.config.financial.tables),
                     start.strftime("%Y%m%d"),
                     end.strftime("%Y%m%d"),
                 )
+                self.storage.enforce(0)
             raw = self.client.financial_data(
                 batch,
                 list(self.config.financial.tables),

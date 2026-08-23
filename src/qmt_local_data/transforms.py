@@ -257,8 +257,20 @@ def assign_financial_availability(financial: pd.DataFrame, trading_calendar: pd.
         + detail_key
     )
     source_payload = logical_payload + "\x1f" + result["announce_date"].astype("string").fillna("<NULL>")
+    snapshot_payload = (
+        result["stock_code"].astype("string").fillna("<NULL>")
+        + "\x1f"
+        + result["table_name"].astype("string").fillna("<NULL>")
+        + "\x1f"
+        + result["report_period"].astype("string").fillna("<NULL>")
+        + "\x1f"
+        + result["announce_date"].astype("string").fillna("<NULL>")
+    )
     result["logical_record_key"] = logical_payload.map(lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest())
     result["source_record_key"] = source_payload.map(lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest())
+    result["snapshot_version_key"] = snapshot_payload.map(
+        lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest()
+    )
     return result
 
 

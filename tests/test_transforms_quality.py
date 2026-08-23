@@ -109,6 +109,7 @@ def test_top_holder_rows_have_distinct_logical_keys_but_revisions_share_them() -
     assert rank2["logical_record_key"].nunique() == 1
     assert rank1.iloc[0]["logical_record_key"] != rank2.iloc[0]["logical_record_key"]
     assert result["source_record_key"].nunique() == 4
+    assert result["snapshot_version_key"].nunique() == 2
 
 
 def test_historical_universe_respects_listing_interval() -> None:

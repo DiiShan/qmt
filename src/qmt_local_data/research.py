@@ -151,17 +151,51 @@ class ResearchData:
         if table_list:
             clauses.append(f'table_name IN ({", ".join("?" for _ in table_list)})')
             parameters.extend(table_list)
+        where = " AND ".join(clauses)
         query = f"""
-            SELECT * EXCLUDE (_pit_version)
-            FROM (
-                SELECT *, ROW_NUMBER() OVER (
-                    PARTITION BY logical_record_key
-                    ORDER BY available_date DESC, announce_date DESC, _ingested_at DESC
-                ) AS _pit_version
-                FROM financial_pit
-                WHERE {" AND ".join(clauses)}
+            WITH eligible AS (
+                SELECT * FROM financial_pit WHERE {where}
+            ),
+            snapshot_versions AS (
+                SELECT DISTINCT stock_code, table_name, report_period,
+                    snapshot_version_key, available_date, announce_date
+                FROM eligible
+                WHERE table_name IN ('Top10Holder', 'Top10FlowHolder')
+            ),
+            latest_snapshots AS (
+                SELECT * EXCLUDE (_snapshot_version)
+                FROM (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY stock_code, table_name, report_period
+                        ORDER BY available_date DESC, announce_date DESC, snapshot_version_key DESC
+                    ) AS _snapshot_version
+                    FROM snapshot_versions
+                )
+                WHERE _snapshot_version = 1
+            ),
+            snapshot_rows AS (
+                SELECT eligible.*
+                FROM eligible
+                INNER JOIN latest_snapshots USING (
+                    stock_code, table_name, report_period, snapshot_version_key
+                )
+                WHERE eligible.table_name IN ('Top10Holder', 'Top10FlowHolder')
+            ),
+            single_rows AS (
+                SELECT * EXCLUDE (_pit_version)
+                FROM (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY logical_record_key
+                        ORDER BY available_date DESC, announce_date DESC, _ingested_at DESC
+                    ) AS _pit_version
+                    FROM eligible
+                    WHERE table_name NOT IN ('Top10Holder', 'Top10FlowHolder')
+                )
+                WHERE _pit_version = 1
             )
-            WHERE _pit_version = 1
+            SELECT * FROM snapshot_rows
+            UNION ALL BY NAME
+            SELECT * FROM single_rows
             ORDER BY stock_code, table_name, report_period
         """
         with duckdb.connect(str(self.database_path), read_only=True) as connection:

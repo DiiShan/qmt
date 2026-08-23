@@ -60,6 +60,8 @@ python scripts/storage_audit.py --config config/data_config.yaml
 容量阈值：目标 25 GiB、警告 30 GiB、硬停止 40 GiB。程序不自动删除 Raw、Processed 或 QMT cache。
 容量预检由统一 manifest 发布路径执行，因此行情、财务、历史 universe 和 Derived 都不能
 绕过硬限制；checkpoint、catalog 和容量报告写入前也会预留元数据空间。
+财务下载还会在调用 XtData 前按 `financial_download_batch_reserve_mb`（默认 256 MiB）预留
+空间，并自动发现 QMT cache 路径，分别检查项目盘和缓存盘的最低剩余空间。
 
 ## 5. 故障恢复
 

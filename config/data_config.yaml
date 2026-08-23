@@ -20,6 +20,7 @@ ingestion:
   max_retries: 3
   retry_backoff_seconds: [5, 30, 120]
   revision_lookback_trade_days: 10
+  financial_download_batch_reserve_mb: 256
 
 markets:
   stock_sectors: [沪深京A股, 沪深A股, 京市A股]
