@@ -22,6 +22,10 @@ Factor / Strategy / Backtest / Risk
 
 完整路线图见 [`量化系统总体规划.md`](量化系统总体规划.md)。当前可直接交给 Codex 执行的数据库建设方案见 [`本地数据库构建计划.md`](本地数据库构建计划.md)，其中已经冻结 v1 数据范围、历史区间、Raw/Processed/DuckDB 职责、期货主链与基差设计、容量预算和验收标准。
 
+`E:\qmt_data` 各目录的用途、当前真实容量和 10–20 GB 工程预算与实际占用的差异，见
+[`docs/DATA_ROOT_README.md`](docs/DATA_ROOT_README.md)。初始化完成后，该文件也会复制为
+`E:\qmt_data\README.md`，方便直接在数据目录中查看。
+
 执行级、经过独立 Review 收敛的计划见 [`本地数据库构建计划_codex.md`](本地数据库构建计划_codex.md)。数据库 v1 代码位于 `src/qmt_local_data/`，默认数据根目录为 `E:\qmt_data`；可在本地配置中修改，但源码不硬编码其他机器路径。
 
 第一阶段优先建设 **全 A 股日线 + 财务八表 + 复权/状态/交易日历 + 主要指数 + CFFEX 股指期货实际合约 + 本地 DuckDB/Parquet 数据底座**，分钟、tick、期权和实时能力后置到策略确有需要时再扩展。
