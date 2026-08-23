@@ -9,10 +9,20 @@
 本仓库将从当前的 QMT 数据能力审计继续建设为完整的本地量化研究系统：
 
 ```text
-本地数据库 → 历史数据 → Point-in-Time 数据集 → 因子 → 选股 → 组合构建 → 回测 → 风险指标 → 组合分析
+QMT / MiniQMT
+    ↓
+Raw Parquet
+    ↓
+Processed Parquet
+    ↓
+DuckDB
+    ↓
+Factor / Strategy / Backtest / Risk
 ```
 
-完整路线图见 [`量化系统总体规划.md`](量化系统总体规划.md)。第一阶段优先建设 **全 A 股日线 + 财务八表 + 复权/状态/交易日历 + 本地 DuckDB/Parquet 数据底座**，分钟、tick 和实时能力后置到策略确有需要时再扩展。
+完整路线图见 [`量化系统总体规划.md`](量化系统总体规划.md)。当前可直接交给 Codex 执行的数据库建设方案见 [`本地数据库构建计划.md`](本地数据库构建计划.md)，其中已经冻结 v1 数据范围、历史区间、Raw/Processed/DuckDB 职责、期货主链与基差设计、容量预算和验收标准。
+
+第一阶段优先建设 **全 A 股日线 + 财务八表 + 复权/状态/交易日历 + 主要指数 + CFFEX 股指期货实际合约 + 本地 DuckDB/Parquet 数据底座**，分钟、tick、期权和实时能力后置到策略确有需要时再扩展。
 
 ## 当前 QMT 数据权限基线
 
@@ -134,7 +144,9 @@ reports/qmt_api_official_<timestamp>.md
 
 ## 给 Codex 的执行任务
 
-完整步骤见 [`CODEX_PLAN.md`](CODEX_PLAN.md)。
+权限审计 / API 能力补测步骤见 [`CODEX_PLAN.md`](CODEX_PLAN.md)。
+
+数据库正式建设步骤见 [`本地数据库构建计划.md`](本地数据库构建计划.md)。
 
 最重要的验收标准：Codex 必须在**你实际登录 MiniQMT 的机器**运行脚本，再根据生成的 JSON/Markdown 报告更新数据能力矩阵；不能仅靠静态阅读代码宣布某项权限可用。
 
