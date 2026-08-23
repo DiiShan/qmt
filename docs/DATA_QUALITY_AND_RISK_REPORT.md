@@ -123,5 +123,6 @@ download_history_contracts: completed
 | 2026-08-23 | 记录退市 A 股发现缺口，暂缓处理 | DEFERRED |
 | 2026-08-23 | 保持 Phase 0 硬门禁，不启动全量初始化 | ACTIVE |
 | 2026-08-23 | 接受已记录风险，批准初始化 `CURRENT_UNIVERSE_ONLY` 临时库 | APPROVED_WITH_RISK |
+| 2026-08-23 | 实机发现 602 条当前证券使用 `10001011/10001111/10011011/10011111/10111111` 五种上游 ExpireDate 哨兵值；仅对该白名单标准化为 NULL 并保留质量标记 | MITIGATED |
 
 下次复核日期由项目负责人在完成 MiniQMT 过期合约列表下载/重启或取得替代证券主表后确定。
