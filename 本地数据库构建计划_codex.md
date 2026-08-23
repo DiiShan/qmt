@@ -236,8 +236,8 @@ futures:
 
 ### 5.3 Schema 演进
 
-- schema 使用整数版本，新增可空列允许向后兼容的小版本演进；
-- 删除/改名/语义变化必须升级主版本并提供迁移或全量重建步骤；
+- schema 版本固定使用字符串 `MAJOR.MINOR`（例如 `1.0`），不使用裸整数或第三段 patch；
+- 新增可空列等向后兼容变化升级 `MINOR`；删除、改名、类型或语义变化升级 `MAJOR`，并提供迁移或全量重建步骤；
 - 未知上游字段先保存在 Raw；不得静默塞入 Processed；
 - DuckDB view 只指向当前被支持的 schema 版本；
 - 每次转换把 `schema_version` 和来源 run 写入 manifest，不要求在每行重复保存。
@@ -347,9 +347,17 @@ future_daily:
 `future_main_mapping` 最小字段：
 
 ```text
-trade_date, product, contract_code, selection_method,
-rule_version, eligible_contract_count, source_run_id
+mapping_type, observation_trade_date, effective_trade_date,
+product, contract_code, selection_method, rule_version,
+eligible_contract_count, source_run_id
 ```
+
+业务主键为 `(mapping_type, effective_trade_date, product)`。`mapping_type` v1 只允许：
+
+- `EOD_OBSERVED`：在交易日 T 的全部候选合约日线完成并通过质量门禁后，使用 T 日收盘后的 OI/Volume 选出的描述性主力；`observation_trade_date=T`、`effective_trade_date=T`。它只允许用于 T 日收盘后的归因、展示和研究，禁止用于在 T 日收盘或更早成交的决策。
+- `NEXT_TRADE_DAY`：把 T 日 `EOD_OBSERVED` 的结果映射到该市场下一个交易日 T+1；`observation_trade_date=T`、`effective_trade_date=T+1`。这是日频回测和可交易主力序列的唯一默认语义。
+
+`effective_trade_date` 必须由 `trade_calendar.next_trade_date` 得到，不能简单加一个自然日。Research API 的 `get_future_main()` 必须要求调用方显式传入 `mapping_type`；回测模块若未传或传入 `EOD_OBSERVED` 却尝试在同日收盘前/收盘成交，应拒绝执行，不能静默降级。
 
 `oi_then_volume_v1` 规则：
 
@@ -357,10 +365,10 @@ rule_version, eligible_contract_count, source_run_id
 2. 优先最大 `open_interest`；
 3. 持仓量全部缺失/无效时用最大 `volume`；
 4. 再并列时按更早到期日、最后按合约代码做确定性选择；
-5. 不用未来日期数据决定当日主力；
-6. 保存 `selection_method`、候选数量和规则版本。
+5. EOD 映射只用 `observation_trade_date` 当日及以前数据；T+1 映射只由最近一个已完成交易日的 EOD 映射产生；
+6. 保存 `mapping_type`、观察日、生效日、`selection_method`、候选数量和规则版本。
 
-`future_main_daily` 不生成伪造可交易价格。第一版保留被选中真实合约的原始价与换月标记；如以后提供拼接调整价格，必须是单独字段和单独规则版本。
+`future_main_daily` 必须携带 `mapping_type`、`observation_trade_date` 和 `effective_trade_date`，不生成伪造可交易价格。第一版保留被选中真实合约的原始价与换月标记；如以后提供拼接调整价格，必须是单独字段和单独规则版本。
 
 `future_basis_daily` 最小字段：
 
@@ -369,10 +377,21 @@ trade_date, product, contract_code, spot_code,
 future_close, future_settlement, spot_close,
 basis_close, basis_settlement, basis_pct,
 days_to_expiry, annualized_basis,
-is_main_contract, rule_version, source_run_id
+is_main_contract_eod, is_main_contract_next_trade_day,
+rule_version, source_run_id
 ```
 
-现货映射：`IH→000016.SH`、`IF→000300.SH`、`IC→000905.SH`、`IM→000852.SH`。基差符号统一为 `future - spot`，在 schema 文档明确。`days_to_expiry <= 0`、现货价非正、任一必需价格缺失时，不计算百分比/年化值并记录质量原因。年化公式和自然日/交易日口径在实现前由测试样例冻结。
+现货映射：`IH→000016.SH`、`IF→000300.SH`、`IC→000905.SH`、`IM→000852.SH`。v1 公式冻结为：
+
+```text
+basis_close       = future_close - spot_close
+basis_settlement  = future_settlement - spot_close
+basis_pct         = basis_close / spot_close
+days_to_expiry    = expire_date - trade_date（自然日整数）
+annualized_basis  = basis_pct * 365.0 / days_to_expiry
+```
+
+这是按自然日的单利年化，不使用交易日、不做复利。符号统一为 `future - spot`：正值表示升水，负值表示贴水。`annualized_basis` 只基于收盘价口径；结算价口径保留 `basis_settlement`，v1 不额外年化。`days_to_expiry <= 0`、现货价非正或任一对应公式的必需价格缺失时，该公式结果为 NULL，并记录质量原因。上述公式必须用已知正/负基差、闰年跨年、到期日和缺值 fixture 固定测试。
 
 ## 7. 采集、幂等与增量策略
 
@@ -530,13 +549,19 @@ WHERE trade_date = DATE '2020-06-30';
 
 ### Phase 0 — Preflight 与契约冻结
 
+`DEPENDS_ON`：无前序 Phase；运行前提是已登录 MiniQMT、当前能力基线文件可读且有足够的小样本临时空间。
+
 工作：实现最小能力探针，验证历史证券/合约发现、实际 schema、日期语义、缓存和空间基线；不进行全量下载。
 
 交付：去敏 JSON/Markdown 报告、Raw 样本 schema、字段映射草案、容量/吞吐基线。
 
 Gate：第 2.3 节五项硬门槛全部 PASS；关键字段和状态分类有证据。
 
+`ON_FAILURE`：把 run 标为 `BLOCKED/FAILED` 并输出能力诊断；不启动任何全量初始化，不伪造或用当前列表替代历史数据。修复权限、handler、schema 或发现逻辑后从 Phase 0 重跑。
+
 ### Phase 1 — 骨架、配置、运行元数据与存储守卫
+
+`DEPENDS_ON`：Phase 0 Gate PASS，且样本字段足以冻结首版 manifest/schema 契约。
 
 工作：建立包结构、配置验证、日志、run manifest、checkpoint、单写者锁、原子发布和 storage guard。
 
@@ -544,7 +569,11 @@ Gate：第 2.3 节五项硬门槛全部 PASS；关键字段和状态分类有证
 
 Gate：失败注入后可恢复；warning/hard limit 行为测试通过；敏感路径不进入 Git。
 
+`ON_FAILURE`：不发布运行时基础版本，保留失败测试证据；Phase 2–8 全部阻断，先修复状态机、原子发布或容量守卫后重跑 Phase 1。
+
 ### Phase 2 — Security Master、交易日历与历史 Universe
+
+`DEPENDS_ON`：Phase 0、Phase 1 Gate PASS。
 
 工作：构建当前+历史证券全集、上市/退市边界和基础历史 universe。
 
@@ -552,7 +581,11 @@ Gate：失败注入后可恢复；warning/hard limit 行为测试通过；敏感
 
 Gate：退市样本闭环；四个年份 universe 数量合理变化；无当前成分回填历史。
 
+`ON_FAILURE`：隔离未通过的 reference/universe run，继续保留上一个 active manifest；阻断 Phase 3、Phase 4、Phase 6 和 v1 总验收，不允许以当前证券列表降级替代。
+
 ### Phase 3 — A 股历史日线
+
+`DEPENDS_ON`：Phase 1、Phase 2 Gate PASS；`security_master` 与 `trade_calendar` 已发布。
 
 工作：SH/SZ/BJ，默认 2011-01-01 至当前；分批下载、Raw/Processed 发布、增量窗口与 DuckDB view。
 
@@ -560,9 +593,13 @@ Gate：退市样本闭环；四个年份 universe 数量合理变化；无当前
 
 Gate：至少一个批次完整重跑业务结果一致；实际最早日期有 metadata；两类查询通过；无未解释主键重复。
 
+`ON_FAILURE`：不切换失败批次/转换的 active manifest；按 checkpoint 重试可重试批次，schema、质量或容量错误则停止。阻断依赖股票行情的 Phase 4、Phase 6–8 和 v1 总验收。
+
 若 QMT 不能可靠覆盖 2011，先逐类记录实际最早日期；只有证据表明统一口径必要时才将研究基准回退到 2014，不伪造空缺。
 
 ### Phase 4 — 财务、公司行动、复权与状态
+
+`DEPENDS_ON`：Phase 1–3 Gate PASS；交易日历、证券主表和股票原始日线已发布。
 
 工作：财务八表 Raw/Processed、PIT 可见性、修订、公司行动、复权和可验证状态字段。
 
@@ -570,7 +607,11 @@ Gate：至少一个批次完整重跑业务结果一致；实际最早日期有 
 
 Gate：无公告日期的数据不会泄漏到回测；三项复权案例通过；重建结果 checksum/统计一致；ST 缺口明确可见。
 
+`ON_FAILURE`：只隔离失败的财务/公司行动/Derived run，不覆盖 Raw 或上一个 active 版本；阻断财务 PIT、复权相关的 Phase 6–8 验收。ST 来源单独失败时保持 `UNKNOWN`，但不得把该子项伪装为 PASS。
+
 ### Phase 5 — 指数与 CFFEX 真实合约
+
+`DEPENDS_ON`：Phase 0、Phase 1 Gate PASS；Phase 0 已证明过期合约闭环。它可与 Phase 3–4 的实现开发并行，但发布验收仍按本计划 Gate 独立执行。
 
 工作：五个指数日线，IF/IH/IC/IM 合约主表和全部可发现真实历史合约日线。
 
@@ -578,15 +619,23 @@ Gate：无公告日期的数据不会泄漏到回测；三项复权案例通过�
 
 Gate：四个产品均有真实合约覆盖；过期样本可查询；结算价/持仓量/成交量质量检查通过。
 
+`ON_FAILURE`：隔离失败的指数/期货 run，阻断期货相关 Phase 6、Phase 7 API 和 v1 总验收；股票数据的既有 active 版本不回滚，也不得用 `IF00` 等连续代码替代真实合约。
+
 ### Phase 6 — 版本化 Derived
+
+`DEPENDS_ON`：Phase 2–5 Gate PASS；所需 Processed 输入的 active manifest、schema 版本与交易日历一致。
 
 工作：主力映射、真实价格连续视图、基差、复权价格和历史 universe 重建命令。
 
 交付：`future_main_mapping`、`future_main_daily`、`future_basis_daily`、规则版本与 lineage。
 
-Gate：tie-break、换月、缺值、到期日和 spot 映射测试通过；无未来数据参与当日选择。
+Gate：tie-break、换月、缺值、到期日和 spot 映射测试通过；`EOD_OBSERVED` 与 `NEXT_TRADE_DAY` availability 测试通过；年化公式 fixture 通过；无未来数据参与可交易选择。
+
+`ON_FAILURE`：不切换 Derived active manifest，保留下层 Processed 数据；阻断对应的 Phase 7 API 和 Phase 8/v1 验收，修正规则或输入质量后从已发布 Processed 重建，不重新下载 Raw。
 
 ### Phase 7 — DuckDB 与稳定 Research API
+
+`DEPENDS_ON`：Phase 1–6 所有适用于 v1 的 Gate PASS，且各 active manifest/schema 可联合查询。
 
 工作：建立 catalog/views、小型 metadata/quality 表和稳定读取函数。
 
@@ -604,13 +653,19 @@ get_future_basis
 
 Gate：研究 API 不导入 `xtdata`；大表没有被 DuckDB 全量复制；两类查询和 PIT 查询通过。
 
+`ON_FAILURE`：不发布新的 catalog/API 版本，继续保留上一个可用 catalog；阻断 Phase 8 和 v1 总验收。修复 view/schema/API 后重建 catalog，不复制或修改底层 Parquet。
+
 ### Phase 8 — 全量验证、容量审计和运维交付
+
+`DEPENDS_ON`：Phase 0–7 Gate 全部 PASS，所有 v1 dataset 已发布且 lineage 完整。
 
 工作：完成跨表质量检查、可重跑验证、故障恢复演练、真实容量和性能报告。
 
 交付：`DATABASE_SCHEMA.md`、`RUNBOOK.md`、`DATA_QUALITY_REPORT.md`、`STORAGE_REPORT.md`，更新 README。
 
 Gate：所有 v1 完成标准通过，或明确列出阻断项且不得宣称 v1 完成。
+
+`ON_FAILURE`：保持数据库状态为 `NOT_ACCEPTED`，发布失败/阻断报告但不删除已成功数据；回到首个失败 Gate 修复并重跑受影响的下游 Phase，禁止仅改报告绕过验收。
 
 ## 12. CLI 与运维契约
 
