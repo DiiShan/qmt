@@ -34,6 +34,16 @@ def test_replace_manifest_drops_prior_components(data_config) -> None:
     assert len(current.files) == 1
 
 
+def test_database_status_marks_current_universe_as_not_accepted(data_config) -> None:
+    from qmt_local_data.pipeline import DatabaseBuilder
+
+    builder = DatabaseBuilder(data_config, object(), universe_scope="CURRENT_UNIVERSE_ONLY")
+    path = builder.write_database_status("READY_CURRENT_UNIVERSE_ONLY", phase0_gate_passed=False)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["universe_scope"] == "CURRENT_UNIVERSE_ONLY"
+    assert payload["accepted_for_unbiased_backtest"] is False
+
+
 def test_project_lock_refuses_active_and_requires_explicit_stale_break(data_config) -> None:
     first = ProjectLock(data_config.data_root, stale_after_seconds=1)
     first.acquire()

@@ -56,9 +56,17 @@ class BatchResult:
 
 
 class DatabaseBuilder:
-    def __init__(self, config: DataConfig, client: XtDataClient) -> None:
+    def __init__(
+        self,
+        config: DataConfig,
+        client: XtDataClient,
+        universe_scope: str = "FULL_HISTORY",
+    ) -> None:
+        if universe_scope not in {"FULL_HISTORY", "CURRENT_UNIVERSE_ONLY"}:
+            raise ValueError(f"Unsupported universe scope: {universe_scope}")
         self.config = config
         self.client = client
+        self.universe_scope = universe_scope
         cache_path = config.storage.qmt_cache_path or getattr(client, "data_dir", None)
         storage_config = replace(config.storage, qmt_cache_path=cache_path)
         self.storage = StorageGuard(config.data_root, storage_config)
@@ -92,7 +100,13 @@ class DatabaseBuilder:
         else:
             dataset = "future_contract_master"
         manifest = self.store.publish_frame(
-            "processed", dataset, frame, "1.0", mode="append", source_version=self.client.source_version
+            "processed",
+            dataset,
+            frame,
+            "1.0",
+            mode="append",
+            source_version=self.client.source_version,
+            metadata={"universe_scope": self.universe_scope} if asset == "stock" else {},
         )
         return manifest.run_id
 
@@ -140,7 +154,11 @@ class DatabaseBuilder:
                 requested_start=start.isoformat(),
                 requested_end=end.isoformat(),
                 source_version=self.client.source_version,
-                metadata={"batch_id": batch_id, "codes": batch},
+                metadata={
+                    "batch_id": batch_id,
+                    "codes": batch,
+                    **({"universe_scope": self.universe_scope} if asset == "stock" else {}),
+                },
             )
             processed = normalize_market_data(raw, asset)
             quality = validate_daily_bars(processed, code_column, dataset)
@@ -156,7 +174,11 @@ class DatabaseBuilder:
                 requested_end=end.isoformat(),
                 date_column="trade_date",
                 source_version=self.client.source_version,
-                metadata={"batch_id": batch_id, "quality": quality.to_dict()},
+                metadata={
+                    "batch_id": batch_id,
+                    "quality": quality.to_dict(),
+                    **({"universe_scope": self.universe_scope} if asset == "stock" else {}),
+                },
             )
             self.storage.enforce(64 * 1024)
             self.checkpoints.mark_complete(
@@ -199,7 +221,13 @@ class DatabaseBuilder:
             if raw_frame.empty:
                 continue
             raw_manifest = self.store.publish_frame(
-                "raw", "financial", raw_frame, "1.0", mode="append", source_version=self.client.source_version
+                "raw",
+                "financial",
+                raw_frame,
+                "1.0",
+                mode="append",
+                source_version=self.client.source_version,
+                metadata={"universe_scope": self.universe_scope},
             )
             processed = assign_financial_availability(raw_frame, trading_calendar)
             quality = validate_financial(processed)
@@ -213,7 +241,7 @@ class DatabaseBuilder:
                 input_runs=[raw_manifest.run_id],
                 date_column="report_period",
                 source_version=self.client.source_version,
-                metadata={"quality": quality.to_dict()},
+                metadata={"quality": quality.to_dict(), "universe_scope": self.universe_scope},
             )
             runs.append(manifest.run_id)
         return runs
@@ -235,16 +263,21 @@ class DatabaseBuilder:
                 "1.0",
                 mode="append",
                 source_version=self.client.source_version,
-                metadata={"normalization_status": "RAW_ONLY_PENDING_FACTOR_SEMANTICS_VALIDATION"},
+                metadata={
+                    "normalization_status": "RAW_ONLY_PENDING_FACTOR_SEMANTICS_VALIDATION",
+                    "universe_scope": self.universe_scope,
+                },
             )
             runs.append(manifest.run_id)
         return runs
 
-    def build_universe(self) -> str:
+    def build_universe(self, name: str = "ALL_A") -> str:
+        if self.universe_scope == "CURRENT_UNIVERSE_ONLY" and name == "ALL_A":
+            raise ValueError("CURRENT_UNIVERSE_ONLY cannot publish a universe named ALL_A")
         master = self.store.read_active_frame("processed", "security_master", ["stock_code"])
         calendar = self.store.read_active_frame("processed", "trade_calendar", ["market", "trade_date"])
         last_manifest = None
-        for index, universe in enumerate(iter_historical_universe(master, calendar), start=1):
+        for index, universe in enumerate(iter_historical_universe(master, calendar, name=name), start=1):
             last_manifest = self.store.publish_frame(
                 "derived",
                 "historical_universe",
@@ -252,7 +285,12 @@ class DatabaseBuilder:
                 "1.0",
                 mode="replace" if index == 1 else "append",
                 date_column="trade_date",
-                metadata={"batch_index": index},
+                metadata={
+                    "batch_index": index,
+                    "universe_name": name,
+                    "universe_scope": self.universe_scope,
+                    "accepted_for_unbiased_backtest": self.universe_scope == "FULL_HISTORY",
+                },
             )
         if last_manifest is None:
             raise ValueError("Historical universe is empty")
@@ -313,3 +351,28 @@ class DatabaseBuilder:
         output = self.config.data_root / "metadata" / "storage" / "latest.json"
         atomic_write_json(output, payload)
         return output
+    def write_database_status(self, state: str, phase0_gate_passed: bool) -> Path:
+        self.storage.enforce(64 * 1024)
+        payload = {
+            "schema_version": "1.0",
+            "state": state,
+            "universe_scope": self.universe_scope,
+            "phase0_gate_passed": phase0_gate_passed,
+            "accepted_for_unbiased_backtest": (
+                self.universe_scope == "FULL_HISTORY" and phase0_gate_passed
+            ),
+            "updated_at": pd.Timestamp.now(tz=self.config.project.timezone).isoformat(),
+        }
+        output = self.config.data_root / "metadata" / "database_status.json"
+        atomic_write_json(output, payload)
+        return output
+
+
+def load_database_status(data_root: Path) -> dict | None:
+    path = data_root / "metadata" / "database_status.json"
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("database_status.json must contain a JSON object")
+    return value
