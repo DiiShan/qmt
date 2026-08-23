@@ -1,92 +1,74 @@
-# MiniQMT / xtdata Capability Matrix
+# MiniQMT / XtData 数据能力矩阵
 
-> 2026-08-23 使用 `qmt_api_probe_minimal.py` 在兴业证券 MiniQMT 实机验证；
-> Python 3.13.5 / xtquant 250807.1.2。每类只以 1 个有效样本作为 PASS 证据。
-> 已按迅投官网 XtData 主文档补齐安全只读接口、8 张财务表及明确的 SKIP 项；
-> 完整报告另含 API 可用性、权限、返回值和有效样本字段。
+> 2026-08-23 兴业证券 MiniQMT 实机结果。范围仅限数据能力；一类数据只保留一个有效样本。完整逐项中文说明见 [`qmt权限-20260823版本.md`](qmt权限-20260823版本.md)。
 
-| Category | API / period | Representative code | Status | Download needed | Trading-hours sensitive | Permission-sensitive | Evidence / next step |
-|---|---|---|---|---|---|---|---|
-| Connection | `import xtquant.xtdata` | - | PASS | No | No | No | Imported from the installed xtquant 250807.1.2 package |
-| Connection | `get_instrument_detail` | `000001.SZ` | PASS | No | No | Low | Returned a non-empty instrument object over the local MiniQMT connection |
-| Connection | `get_instrument_type` | `000001.SZ` | PASS | No | No | Low | Returned `stock: true` |
-| Inventory | `get_period_list` | - | UNSUPPORTED | No | No | Medium | Client returned ErrorID 300000: `function not realize` |
-| Calendar | `get_holidays` | - | EMPTY | Attempted | No | Low | Empty before/after supplement; `download_holiday_data` is unsupported by this client |
-| Calendar | `get_trading_calendar` | `SH` | UNSUPPORTED | No | No | Low | Client returned ErrorID 300000: `function not realize` |
-| Calendar | `get_trading_dates` | `SH` | PASS | No | No | Low | Returned one trading-date timestamp |
-| Metadata | `get_sector_list` | - | PASS | No | No | Low | Returned one of 853 local sectors |
-| Metadata | `get_stock_list_in_sector` | runtime-selected sector | PASS | No | No | Low | Returned one constituent from the first runtime sector |
-| L1 history | `1d` | `000001.SZ` | PASS | Yes, 7-day window | No | Low | Returned the 2026-08-21 bar after minimal supplement |
-| L1 history | `1m` | `000001.SZ` | PASS | Yes, 7-day window | No | Low | Returned one 2026-08-21 minute bar |
-| L1 history | `5m` | `000001.SZ` | PASS | Yes, 7-day window | No | Low | Returned one 2026-08-21 five-minute bar |
-| L1 period | `15m` | `000001.SZ` | PASS | Base data | No | Low | Returned one synthesized/retrieved bar |
-| L1 period | `30m` | `000001.SZ` | PASS | Base data | No | Low | Returned one synthesized/retrieved bar |
-| L1 period | `1h` | `000001.SZ` | PASS | Base data | No | Low | Returned one synthesized/retrieved bar |
-| L1 period | `1w` | `000001.SZ` | PASS | 1d base | No | Low | Returned one weekly bar |
-| L1 period | `1mon` | `000001.SZ` | PASS | 1d base | No | Low | Returned one monthly bar |
-| L1 period | `1q` | `000001.SZ` | PASS | 1d base | No | Low | Returned one quarterly bar |
-| L1 period | `1hy` | `000001.SZ` | PASS | 1d base | No | Low | Returned one half-year bar |
-| L1 period | `1y` | `000001.SZ` | PASS | 1d base | No | Low | Returned one yearly bar |
-| Tick | `get_market_data_ex(tick)` | `000001.SZ` | PASS | Yes, 7-day window | Yes for freshness | Low | Returned the last 2026-08-21 tick |
-| L1 API | `get_market_data(1d)` | `000001.SZ` | PASS | Existing cache | No | Low | Official primary cache-read API returned one bar |
-| L1 API | `get_local_data(1d)` | `000001.SZ` | PASS | Existing cache | No | Low | Official local-file API returned one bar |
-| Realtime | `get_full_tick` | `000001.SZ` | PASS | No | Yes for freshness | Low | Returned the latest cached snapshot |
-| Realtime | `get_full_kline(1m)` | `000001.SZ` | UNSUPPORTED | No | Yes | Low | Client returned ErrorID 300000: `function not realize` |
-| Realtime | `subscribe_quote(tick)` | `000001.SZ` | PASS | No | Yes for callback | Low | Returned subscription id 1, then immediately unsubscribed |
-| Realtime | `subscribe_whole_quote` | `000001.SZ` | PASS | No | Yes for callback | Low | One-code full-push subscription returned id 2, then immediately unsubscribed |
-| Corporate action | `get_divid_factors` | `000001.SZ` | PASS | No | No | Low | Returned one dividend-factor row |
-| Financial | `Balance` | `000001.SZ` | PASS | Yes | No | Medium | Returned one row after one-symbol compatibility download |
-| Financial | `Income` | `000001.SZ` | PASS | Yes | No | Medium | Returned one row after one-symbol compatibility download |
-| Financial | `CashFlow` | `000001.SZ` | PASS | Yes | No | Medium | Returned one row after one-symbol compatibility download |
-| Financial | `Capital` | `000001.SZ` | PASS | Yes | No | Medium | Returned one capital-structure row |
-| Financial | `HolderNum` | `000001.SZ` | PASS | Yes | No | Medium | Returned one shareholder-count row |
-| Financial | `Top10Holder` | `000001.SZ` | PASS | Yes | No | Medium | Returned one top-ten-holder row |
-| Financial | `Top10FlowHolder` | `000001.SZ` | PASS | Yes | No | Medium | Returned one top-ten-floating-holder row |
-| Financial | `PershareIndex` | `000001.SZ` | PASS | Yes | No | Medium | Returned one per-share-index row |
-| Index | `get_index_weight` | `000300.SH` | EMPTY | Not downloaded | No | Low | Local index-weight cache is empty; bulk refresh intentionally skipped |
-| IPO | `get_ipo_info` | - | UNSUPPORTED | No | No | Medium | Client returned ErrorID 200005: handler not found |
-| ETF | `get_etf_info` | `510300.SH` | UNSUPPORTED | No | No | Medium | ETF instrument detail passed, but this API returned ErrorID 300000 |
-| Convertible bond | `get_cb_info` | `123071.SZ` | EMPTY | Yes, metadata | No | Medium | Instrument detail passed; metadata download plus 11 valid-code retries stayed empty |
-| Option | `get_option_detail_data` | `10011948.SHO` | ERROR | No | No | Medium | Instrument detail passed; wrapper raised TypeError because a client field was missing |
-| Option | `1d / 1m` market data | `10011948.SHO` | PASS | Yes, 7-day window | No | Medium | Both daily and minute samples returned |
-| Option | `tick` history | `10011948.SHO` | EMPTY | Not downloaded | Yes for freshness | Medium | No historical tick returned in the 7-day window |
-| Option | `get_full_tick` | `10011948.SHO` | PASS | No | Yes for freshness | Medium | Returned the latest cached option snapshot |
-| Option | `subscribe_quote` | `10011948.SHO` | PASS | No | Yes for callback | Medium | Subscription accepted and immediately cancelled |
-| Futures | `get_instrument_detail` | `IF2609.IF` | PASS | No | No | Medium | Returned current CFFEX contract detail; expiry 2026-09-18 |
-| Futures | `1d / 1m` market data | `IF2609.IF` | PASS | Yes, 7-day window | No | Medium | Both daily and minute samples returned |
-| Futures | `tick / get_full_tick` | `IF2609.IF` | EMPTY | No | Yes for freshness | Medium | No historical tick or cached full snapshot returned outside trading hours |
-| Futures | `subscribe_quote` | `IF2609.IF` | PASS | No | Yes for callback | Medium | Subscription accepted and immediately cancelled |
-| Commodity future | Contract discovery/detail | `al2611.SF / c2701.DF / MA701.ZF` | PASS | No | No | Medium | Found valid paired contracts for SHFE, DCE and CZCE; instrument detail returned for all three |
-| Commodity future | `1d / 1m / tick / get_full_tick` | same three | EMPTY | Yes, 7-day 1d/1m | Yes for snapshot | **High** | All reads stayed empty after minimal downloads; no explicit permission error, so entitlement remains unknown |
-| Commodity future | `subscribe_quote` | same three | PASS | No | Yes for callback | **High** | All three subscriptions returned positive ids and were immediately cancelled; this does not prove data delivery |
-| Commodity option | Contract discovery/detail | `al2611C24000.SF / c2701-C-2040.DF / MA701C2600.ZF` | PASS | No | No | Medium | Valid matching options discovered for SHFE, DCE and CZCE; instrument detail returned for all three |
-| Commodity option | `get_option_detail_data` | same three | ERROR | No | No | Medium | Installed wrapper raised the same missing-field TypeError for all three |
-| Commodity option | `1d / 1m / tick / get_full_tick` | same three | EMPTY | Yes, 7-day 1d/1m | Yes for snapshot | **High** | All reads stayed empty after minimal downloads; no explicit permission error, so entitlement remains unknown |
-| Commodity option | `subscribe_quote` | same three | PASS | No | Yes for callback | **High** | All three subscriptions returned positive ids and were immediately cancelled; no callback sample was required |
-| Level 2 | `l2quote` | `000001.SZ` | NO_PERMISSION | No historical guarantee | **Yes** | **High** | Brief subscription returned explicit `no level2 permission`, meta 1010 |
-| Level 2 | `l2quoteaux` | `000001.SZ` | NO_PERMISSION | No historical guarantee | **Yes** | **High** | Explicit permission error, meta 1011 |
-| Level 2 | `l2order` | `000001.SZ` | NO_PERMISSION | No historical guarantee | **Yes** | **High** | Explicit permission error, meta 1802 |
-| Level 2 | `l2transaction` | `000001.SZ` | NO_PERMISSION | No historical guarantee | **Yes** | **High** | Explicit permission error, meta 1801 |
-| Level 2 | `l2orderqueue` | `000001.SZ` | NO_PERMISSION | No historical guarantee | **Yes** | **High** | Explicit permission error, meta 1804 |
-| Level 2 extension | `subscribe_l2thousand` | `000001.SZ` | NO_PERMISSION | No | **Yes** | **High** | Explicit permission error, meta 1803 |
-| Level 2 extension | `get_l2thousand_queue` | `000001.SZ` | UNSUPPORTED | No | **Yes** | **High** | Client returned ErrorID 300000 |
-| Level 2 extension | `subscribe_l2thousand_queue` | `000001.SZ` | UNSUPPORTED | No | **Yes** | **High** | Client returned invalid period |
-| Trading time | `get_trading_time` / installed `get_trading_period` | `000001.SZ` | UNSUPPORTED | No | No | Low | Official name absent; installed alias returned ErrorID 300000 |
-| Connection helper | `reconnect` | - | SKIP | No | No | Low | Installed but not called because it would change the active connection |
-| Research | `warehousereceipt` | schema-specific | NOT_TESTED | Varies | Varies | High | Runtime inventory unavailable because `get_period_list` is unsupported |
-| Research | `futureholderrank` | schema-specific | NOT_TESTED | Varies | Varies | High | Runtime inventory unavailable; no blind A-share probe performed |
-| Research | `interactiveqa` | schema-specific | NOT_TESTED | Varies | No | High | Runtime inventory unavailable; schema not guessed |
-| Research | `transactioncount1m/1d` | schema-specific | NOT_TESTED | Varies | Varies | High | Runtime inventory unavailable; schema not guessed |
-| Research | `northfinancechange1m/1d` | schema-specific | NOT_TESTED | Varies | Varies | High | Runtime inventory unavailable; schema not guessed |
-| Research | `snapshotindex` | schema-specific | NOT_TESTED | Varies | Varies | High | Runtime inventory unavailable; schema not guessed |
-| Research | other discovered periods | runtime-specific | NOT_TESTED | Varies | Varies | High | No periods could be enumerated on this client |
+| 类别 | API / period | 中文解释 | 代表代码 | 状态 | API/handler | 权限 | 返回/样本 | 下载/时段与证据 |
+|---|---|---|---|---|---|---|---|---|
+| 环境 | Python → XtData | 验证 Python 能导入并连接 MiniQMT 行情后端。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | Python 3.13.5、xtquant 250807.1.2。 |
+| 兼容性 | 客户端 build | 记录直接影响数据 API 的客户端与行情后端版本。 | - | PASS | 可读 | UNKNOWN | 有/有效 | MiniQMT 2.0.8.0 revision 634931；miniquote 1.0.0.10881。 |
+| 兼容性 | 包/后端评估 | 判断 Python surface 与 MiniQMT handler/schema 是否配套。 | - | ERROR | 部分兼容 | UNKNOWN | 有/无 | 22 条 handler-missing 证据、2 条 option schema mismatch。 |
+| 周期清单 | `get_period_list` | 枚举运行时行情周期和特色数据。 | - | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| A 股 L1 | `1d/1m/5m/15m/30m/1h/1w/1mon/1q/1hy/1y/tick` | 读取股票各周期的一根 K 线或一条 tick。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 历史缓存不足时使用 7 日最小下载。 |
+| A 股快照 | `get_full_tick` | 读取当前缓存中的完整盘口快照。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 休市快照不等于实时 callback。 |
+| A 股实时 | `subscribe_quote` / `subscribe_quote2` | 订阅 tick，只有收到一次 callback 才算实时 PASS。 | `000001.SZ` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 正订阅号已取消；休市无 callback。 |
+| K 线全推 | `get_full_kline` | 读取当日全推 K 线缓存。 | `000001.SZ` | UNSUPPORTED | 后端缺失/配置未知 | UNKNOWN | 无 | ErrorID 300000；K 线全推开关未知。 |
+| ETF 通用行情 | `1d/1m/tick` | 验证 ETF 通用历史行情。 | `510300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 三类均在最小下载后取得一笔。 |
+| ETF 快照 | `get_full_tick` | 读取 ETF 缓存快照。 | `510300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 20 字段 tick 对象。 |
+| ETF 实时 | tick callback | 验证 ETF 实时推送。 | `510300.SH` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 休市无 callback。 |
+| ETF 专用 | `get_etf_info` | 读取 ETF 申购赎回专用资料。 | `510300.SH` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| ETF IOPV | `etfiopv1m/etfiopv1d` | 读取 ETF IOPV 分钟/日频特色数据。 | `510300.SH` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | 两项均 ErrorID 300000。 |
+| 可转债通用行情 | `1d/1m/tick` | 验证当前可转债通用历史行情。 | `111017.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 三类均在最小下载后取得一笔。 |
+| 可转债快照 | `get_full_tick` | 读取可转债缓存快照。 | `111017.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 tick 对象。 |
+| 可转债实时 | tick callback | 验证可转债实时推送。 | `111017.SH` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 休市无 callback。 |
+| 可转债专用 | `get_cb_info` | 读取转股价、转股期等专用元数据。 | 原代表代码 | EMPTY | 可调用 | UNKNOWN | 无 | 专用元数据为空，不影响通用行情 PASS。 |
+| 北交所行情 | `1d/1m/tick` | 验证一只当前北交所股票的历史行情。 | `920238.BJ` | PASS | 可用 | SUFFICIENT | 有/有效 | 三类均在最小下载后取得一笔。 |
+| 北交所快照 | `get_full_tick` | 读取北交所股票缓存快照。 | `920238.BJ` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 tick 对象。 |
+| 北交所实时 | tick callback | 验证北交所实时推送。 | `920238.BJ` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 休市无 callback。 |
+| 指数行情 | `1d` | 读取指数自身日线，不与指数权重混淆。 | `000300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 最小下载后取得一根。 |
+| 指数快照 | `get_full_tick` | 读取指数缓存快照。 | `000300.SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 tick 对象。 |
+| 指数权重 | `get_index_weight` | 读取指数成分和权重。 | `000300.SH` | EMPTY | 可调用 | UNKNOWN | 无 | 本地权重缓存为空。 |
+| 证券期权 | `1d/1m/full tick` | 验证证券期权历史 K 线和快照。 | `10011948.SHO` | PASS | 可用 | SUFFICIENT | 有/有效 | 历史 tick 仍为空。 |
+| 期权详情 | `get_option_detail_data` | 读取行权价、到期日、认购认沽等专用字段。 | 多类期权 | ERROR | Python 存在 | UNKNOWN | 无 | `CLIENT_SCHEMA_MISMATCH`。 |
+| 期权历史 helper | `get_his_option_list(_batch)` | 读取某日/区间的历史期权合约。 | `510300.SH` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 期权映射 helper | `get_option_undl_data/get_option_list` | 建立标的映射并筛选期权列表。 | `510300.SH` | ERROR | Python 存在 | UNKNOWN | 无 | 同一 option schema mismatch。 |
+| 股指期货历史 | `1d/1m` | 读取中金所股指期货历史 K 线。 | `IF2609.IF` | PASS | 可用 | SUFFICIENT | 有/有效 | tick/full tick 休市为空。 |
+| 股指期货实时 | tick callback | 验证当前股指期货实时推送。 | `IC2612.IF` | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 休市无 callback。 |
+| 商品期货 | `1d/1m/tick/full tick` | 验证三家交易所商品期货行情。 | `al2611.SF`、`c2701.DF`、`MA701.ZF` | EMPTY | 静态资料可用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 商品期货实时 | tick callback | 验证三家交易所商品期货实时推送。 | 同上 | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 三个正订阅号均取消；休市无 callback。 |
+| 商品期权 | `1d/1m/tick/full tick` | 验证三家交易所商品期权行情。 | 三个当前合约 | EMPTY | 静态资料可用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 商品期权实时 | tick callback | 验证三家交易所商品期权实时推送。 | 三个当前合约 | EMPTY | 订阅受理 | UNKNOWN | 有/无 | 三个正订阅号均取消；休市无 callback。 |
+| 财务 | 八张官方财务表 | 每张表读取一条记录。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 八表全部 PASS。 |
+| 除权 | `get_divid_factors` | 读取一条除权除息因子。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 8 个字段。 |
+| 交易日 | `get_trading_dates` | 读取一个市场交易日期。 | `SH` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回一个时间戳。 |
+| 交易日历 | `get_trading_calendar` | 读取带属性的市场日历。 | `SH` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 板块 | `get_sector_list/get_stock_list_in_sector` | 读取板块名称和一个成分。 | 本地板块 | PASS | 可用 | SUFFICIENT | 有/有效 | 也用于发现当前合约。 |
+| 板块分类 | `get_sector_info` | 读取带分类信息的板块资料。 | `沪深A股` | EMPTY | 可调用 | UNKNOWN | 无 | 未返回 DataFrame 样本。 |
+| 表格行情 | `get_tabular_data` | 以表格形式读取历史行情。 | `000001.SZ` | PASS | 可用 | SUFFICIENT | 有/有效 | 返回 1 行、12 列。 |
+| 订阅信息 | `get_current_connect_sub_info/get_all_sub_info` | 读取当前连接和客户端订阅信息。 | - | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | 两项均 ErrorID 300000。 |
+| 交易时段 | `get_trading_period/get_all_*` | 读取单合约及全市场交易时段。 | `000001.SZ` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | 三项均 ErrorID 300000。 |
+| 大单统计 | `get_transactioncount` | 读取 Level 1 大单/逐笔统计镜像。 | `000001.SZ` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 行情状态 | `watch_quote_server_status` | 监听行情服务器状态变化。 | - | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | 注册即 ErrorID 300000。 |
+| XtData 状态 | `watch_xtquant_status` | 监听本机 xtquant 状态变化。 | - | EMPTY | 注册成功 | UNKNOWN | 无 | 短窗口无状态变化事件。 |
+| A 股 L2 | 五类常规 L2 | 十档、扩展盘口、逐笔委托/成交及队列。 | `000001.SZ` | NO_PERMISSION | 可调用 | DENIED | 无 | 服务端明确拒绝。 |
+| 千档盘口 | `subscribe_l2thousand` | 订阅千档盘口。 | `000001.SZ` | NO_PERMISSION | 可调用 | DENIED | 无 | 服务端明确拒绝权限。 |
+| 千档队列 | `get_l2thousand_queue` / 队列订阅 | 读取或订阅千档委托队列。 | `000001.SZ` | UNSUPPORTED | handler/period 缺失 | UNKNOWN | 无 | ErrorID 300000 或 invalid period。 |
+| 港股 broker queue helper | `get_broker_queue_data` | 使用专用 helper 读取港股经纪席位队列。 | `00700.HK` | EMPTY | 可调用 | UNKNOWN | 无 | 调用完成但没有样本。 |
+| 港股 broker queue period | `brokerqueue` | 使用特色 period 读取港股经纪席位队列。 | `00700.HK` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 特色公告 | `announcement` | 读取上市公司新闻公告。 | `000001.SZ` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 涨停表现 | `limitupperformance` | 读取涨跌停、连板及炸板表现。 | `000001.SZ` | EMPTY | 可调用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 港股通明细 | `hktdetails` | 读取港股通持股明细。 | `00700.HK` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 港股通统计 | `hktstatistics` | 读取港股通持股统计。 | `00700.HK` | EMPTY | 可调用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 涨跌停价格 | `stoppricedata` | 读取证券涨跌停价格数据。 | `000001.SZ` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 快照指标 | `snapshotindex` | 读取量比、涨速和换手等指标。 | `000001.SZ` | EMPTY | 可调用 | UNKNOWN | 无 | 最小下载后仍空。 |
+| 退市转债 | `delistchangebond` | 读取退市可转债资料。 | 转债 schema | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 待发转债 | `replacechangebond` | 读取待发或替换可转债资料。 | 转债 schema | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 历史主力合约 | `historymaincontract` | 读取期货历史主力合约映射。 | `IF00.IF` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 历史期权合约 | `optionhistorycontract` | 读取历史期权合约资料。 | `XXXXXX.SHO` | UNSUPPORTED | 后端缺失 | UNKNOWN | 无 | ErrorID 300000。 |
+| 港股/美股/外盘 | 通用行情 | 明确尚未验证的市场服务范围。 | - | NOT_TESTED | 未确认 | NOT_TESTED | 无 | 没有服务声明和 schema 验证样本。 |
 
-## Status definitions
+## 状态说明
 
-- `PASS`: representative call returned valid usable data, or subscription returned a valid id.
-- `EMPTY`: call completed but returned no data; reason still unresolved.
-- `NO_PERMISSION`: explicit entitlement/permission failure.
-- `UNSUPPORTED`: API or period is unsupported by the installed runtime.
-- `ERROR`: unexpected failure requiring investigation.
-- `SKIP`: intentionally not probed because prerequisites/code were missing.
-- `NOT_TESTED`: no real local execution evidence yet.
+- `PASS` 必须有一个有效数据样本；命令受理会单独标注，不能代替数据结论。
+- `EMPTY` 不等于无权限；休市订阅为空尤其不能下权限结论。
+- `UNSUPPORTED` 需结合原因码区分 Python 方法缺失、后端 handler 缺失和 invalid period。
+- 实时订阅证据拆分为“订阅受理”和“收到 callback”；本轮 11 次受理、0 次 callback。

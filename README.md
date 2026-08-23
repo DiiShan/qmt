@@ -7,7 +7,7 @@
 ## 目标
 
 1. 验证 Python -> `xtquant` -> MiniQMT 的连接链路。
-2. 按[迅投 XtData 官方主文档](https://dict.thinktrader.net/nativeApi/xtdata.html)逐项覆盖主接口区的 43 个函数入口，并补充官网版本记录中的 7 项扩展能力；不能安全执行或缺少必要前置条件的接口也进入报告，并明确标为 `SKIP`。
+2. 按[迅投 XtData 官方主文档](https://dict.thinktrader.net/nativeApi/xtdata.html)逐项覆盖主接口区的 43 个函数入口，并以 manifest 覆盖官网版本记录扩展能力；不再宣称扩展接口存在固定且完整的“7 项”总数。
 3. 探测数据类别是否可用：
    - 合约基础信息
    - 交易日历 / 节假日 / 板块
@@ -24,7 +24,7 @@
    - Level 2 行情类型（权限/交易时段敏感）
 4. 将结果区分为 `PASS / EMPTY / NO_PERMISSION / UNSUPPORTED / ERROR / SKIP`，避免把“休市无实时数据”误判成“无权限”。
 5. 输出 JSON 与 Markdown 报告；每项均记录适用资产/市场域、API 是否存在、权限判断、是否有返回值、实际返回字段及是否取得有效样本。
-6. 对 XtTrader 当前安装包的公开方法、回调和核心对象字段做静态审计，但不连接资金账号、不执行交易操作。
+6. 范围严格限于 XtData 数据能力，以及直接影响数据 API 的 MiniQMT/xtquant handler、版本和 schema 兼容性。
 
 官方运行逻辑：`xtdata` 与 MiniQMT 建立连接，由 MiniQMT 处理行情请求；能获取的数据范围与 MiniQMT 一致。历史数据不足时需要先下载/补充数据。
 
@@ -80,6 +80,14 @@ python qmt_api_probe_minimal.py --download `
 对每个金融或商品衍生品，脚本检查合约资料、合约类型、日线、一分钟、tick、完整快照和订阅/取消；期权另检查期权专用资料。
 
 ### 5. 输出
+
+审核意见中的数据 P0/P1 专项补测使用：
+
+```powershell
+python qmt_api_probe_minimal.py --review-p0-p1-only --download
+```
+
+该模式覆盖客户端版本、版本记录新增 XtData API、ETF、可转债、北交所、指数、特色 period 与真实订阅回调证据。
 
 默认生成：
 

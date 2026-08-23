@@ -21,7 +21,7 @@
 ## Safety
 
 - 实机只测试 `xtquant.xtdata`，不测试下单、撤单或其他交易写操作。
-- `XtTrader` 仅做安装包公开方法、回调和对象字段的静态审计，不创建交易连接，不读取资金账号。
+- 不导入、枚举、连接或测试任何交易模块；账户、资产、持仓、委托、成交和交易权限均不在范围内。
 - 不提交账号、密码、token、MiniQMT 私有配置、DLL、vendor `xtquant` 包或未经去敏的本机报告。
 - 不使用 GitHub Actions 测 MiniQMT，本任务必须在 MiniQMT 所在机器执行。
 
@@ -83,10 +83,10 @@ python qmt_api_probe_minimal.py --download
 
 - `get_full_tick`：1 个快照
 - `get_full_kline`：1 根
-- `subscribe_quote`：1 个有效订阅号，随后立即取消
-- `subscribe_whole_quote`：只订阅 1 个代码，随后立即取消
+- `subscribe_quote`：收到 1 条合法 callback 后立即取消
+- `subscribe_whole_quote`：只订阅 1 个代码；订阅受理与实际 callback 分开记录
 
-休市时没有更新 callback 不视为失败。
+休市时没有更新 callback 记为 `EMPTY / SUBSCRIBE_ACCEPTED_NO_CALLBACK`，不视为无权限，也不记为实时行情 `PASS`。
 
 ### Reference / metadata
 
@@ -181,7 +181,7 @@ python qmt_api_probe_minimal.py --download `
 
 ### Special / research data
 
-先以 `get_period_list()` 实际发现的 period 为准。
+优先使用 `get_period_list()` 实际发现的 period；当前后端不支持该接口时，仍直接测试官方已明确名称和 schema 的 period。
 
 对准备验证的每个特色类别：
 
@@ -240,7 +240,7 @@ python qmt_api_probe_minimal.py --download `
 9. 官方 XtData 主文档的每个接口是否均有一条检查记录，包括明确的 `SKIP`？
 10. 上期所、大商所、郑商所的商品期货及对应商品期权，是否分别覆盖静态资料、历史行情、快照和订阅？
 11. 官网版本记录中的 `get_market_data_ex`、期权详情、交易时段、重连和千档行情是否已单列？
-12. XtTrader 的公开方法、回调及核心对象字段是否已静态列入报告，并明确未执行交易？
+12. MiniQMT build、行情后端 build、xtquant 包版本，以及 handler/schema 兼容性是否已记录？
 
 提交前：
 
