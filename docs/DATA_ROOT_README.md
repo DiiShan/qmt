@@ -16,6 +16,18 @@
 不要手工修改 `raw`、`processed`、`derived`、`metadata/manifests` 中的文件。
 DuckDB 查询层只读取 active manifest 指向的 Parquet 文件；目录中“看起来存在”的文件不一定属于当前活动版本。
 
+### 两个存储位置不是同一个东西
+
+- `D:\software\program\兴业证券SMT-Q-2.0.8.0-test\userdata_mini\datadir` 是
+  **MiniQMT/XtData 上游缓存**。`download_history_data()`、`download_financial_data2()` 等接口先把券商行情源数据
+  下载到这里，XtData 再从这里返回 DataFrame。它可以被重新下载，不是策略的稳定查询接口。
+- `E:\qmt_data` 是本项目构建的 **研究数据库**。它把读取到的数据转换为有 manifest、质量标记、
+  Processed/Derived 层和 DuckDB 视图的持久化数据，是策略和 AI 工具应该访问的位置。
+
+数据流是 `券商行情源 → D 盘 MiniQMT 缓存 → XtData → E 盘 Parquet/DuckDB`。
+把数据库放到 E 盘不会自动改变 MiniQMT 客户端自身的缓存位置；两者都存在是正常设计。
+已经落入 E 盘活动 Parquet 的数据可由 DuckDB 独立查询，但后续下载和更新仍需要 MiniQMT 缓存与客户端。
+
 ## 2. 顶层目录
 
 ```text
@@ -123,8 +135,8 @@ corporate-action 初始化，约 68.6 MiB。它不参与 DuckDB 查询，也不�
 | 财务 PIT 查询视图 | 1,384,430 行 |
 | 历史样本空间 | 13,498,712 行 |
 | 指数日线 | 18,990 行，5 个指数 |
-| 期货日线 | 1,692 行，12 个合约 |
-| 期货日期 | 2026-01-19 ～ 2026-08-21 |
+| 期货日线物理记录 | 1,692 行，12 个合约；含上市前空占位行，暂不可用于正式回测 |
+| 期货物理日期 | 2026-01-19 ～ 2026-08-21；不等于每个合约的真实交易期 |
 | corporate action | 45,965 行，56 个批次 |
 
 ## 4. 为什么计划约 10–20 GB，实际只有约 1.4 GiB
@@ -153,7 +165,9 @@ corporate-action 初始化，约 68.6 MiB。它不参与 DuckDB 查询，也不�
    原预算给 DuckDB/Catalog 预留了最多 2 GB。
 3. **当前是临时 `CURRENT_UNIVERSE_ONLY` 库。** 已退市 A 股尚未纳入，完整历史库会更大。
 4. **期货历史范围尚未达到原计划。** MiniQMT 当前只发现 12 个可用中金所合约，
-   数据从 2026-01-19 开始，并非从各品种上市日开始的完整历史合约库。
+   分别是 `IC/IF/IH` 的 `2608/2609/2612/2703`，没有 IM，也没有更早历史合约。
+   XtData 还为合约上市前日期返回了空价格、零成交占位行。因此当前期货、主力和基差视图
+   只能用于诊断，不能用于正式策略回测。
 5. **MiniQMT 自身缓存不在 E 盘数据库目录。** 当前缓存位于
    `D:\software\program\兴业证券SMT-Q-2.0.8.0-test\userdata_mini\datadir`，约 3.511 GiB。
    `E:\qmt_data` 与该缓存合计约 4.923 GiB，但二者职责不同，不能简单合并为数据库文件大小。
@@ -179,4 +193,7 @@ python scripts/storage_audit.py --config config/data_config.yaml
 ```
 
 项目仓库：<https://github.com/DiiShan/qmt>
+
+面向 AI 策略编程的完整调用方式见仓库 `docs/DATA_ACCESS_GUIDE.md`，数据目录中同步副本为
+`E:\qmt_data\DATA_ACCESS_GUIDE.md`。
 
