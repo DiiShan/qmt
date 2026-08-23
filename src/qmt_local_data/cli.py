@@ -10,7 +10,7 @@ from .config import load_config
 from .errors import QmtLocalDataError
 from .lock import ProjectLock
 from .manifest import ManifestStore
-from .pipeline import DatabaseBuilder
+from .pipeline import DatabaseBuilder, load_database_status
 from .preflight import (
     PreflightRunner,
     enforce_current_universe_preflight,
@@ -119,10 +119,37 @@ def _run_init(args: argparse.Namespace, config, client: XtDataClient) -> int:
     return 0
 
 
+def _existing_database_scope(config) -> str:
+    status = load_database_status(config.data_root)
+    if status is None:
+        raise QmtLocalDataError("Database status is missing; run an initialization command before update")
+    state = str(status.get("state") or "")
+    scope = str(status.get("universe_scope") or "")
+    if not state.startswith("READY_"):
+        raise QmtLocalDataError(f"Database is not ready for update: {state or 'UNKNOWN'}")
+    expected_state = f"READY_{scope}"
+    if state != expected_state:
+        raise QmtLocalDataError(f"Database state/scope mismatch: state={state}, scope={scope}")
+    if scope not in {"FULL_HISTORY", "CURRENT_UNIVERSE_ONLY"}:
+        raise QmtLocalDataError(f"Unsupported database universe scope: {scope}")
+    accepted = bool(status.get("accepted_for_unbiased_backtest"))
+    if scope == "CURRENT_UNIVERSE_ONLY" and accepted:
+        raise QmtLocalDataError("CURRENT_UNIVERSE_ONLY status cannot be accepted for unbiased backtest")
+    return scope
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = load_config(args.config)
+        if (
+            args.command == "init"
+            and args.allow_current_universe_only
+            and not args.confirm_full_download
+        ):
+            raise QmtLocalDataError(
+                "--allow-current-universe-only requires --confirm-full-download"
+            )
         if args.command == "storage-audit":
             guard = StorageGuard(config.data_root, config.storage)
             print(json.dumps(guard.snapshot().to_dict(), ensure_ascii=False, indent=2))
@@ -157,7 +184,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if report.gate_passed else 2
             if args.command == "init":
                 return _run_init(args, config, client)
-            builder = DatabaseBuilder(config, client)
+            universe_scope = (
+                _existing_database_scope(config) if args.command == "update" else "FULL_HISTORY"
+            )
+            builder = DatabaseBuilder(config, client, universe_scope=universe_scope)
             if args.command == "update":
                 codes = args.codes or client.discover_codes(config.markets.stock_sectors, config.markets.stock_suffixes)
                 with ProjectLock(config.data_root):

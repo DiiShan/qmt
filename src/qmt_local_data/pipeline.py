@@ -351,7 +351,6 @@ class DatabaseBuilder:
         output = self.config.data_root / "metadata" / "storage" / "latest.json"
         atomic_write_json(output, payload)
         return output
-
     def write_database_status(self, state: str, phase0_gate_passed: bool) -> Path:
         self.storage.enforce(64 * 1024)
         payload = {
@@ -367,3 +366,13 @@ class DatabaseBuilder:
         output = self.config.data_root / "metadata" / "database_status.json"
         atomic_write_json(output, payload)
         return output
+
+
+def load_database_status(data_root: Path) -> dict | None:
+    path = data_root / "metadata" / "database_status.json"
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("database_status.json must contain a JSON object")
+    return value

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import duckdb
@@ -7,6 +8,7 @@ import pandas as pd
 import pytest
 
 from qmt_local_data.catalog import CatalogBuilder, ViewSpec
+from qmt_local_data.cli import _existing_database_scope
 from qmt_local_data.manifest import ManifestStore
 from qmt_local_data.pipeline import DatabaseBuilder
 from qmt_local_data.research import ResearchData
@@ -98,6 +100,26 @@ def test_current_universe_is_published_with_explicit_scope(data_config) -> None:
     assert manifest.metadata["universe_scope"] == "CURRENT_UNIVERSE_ONLY"
     assert manifest.metadata["accepted_for_unbiased_backtest"] is False
     assert frame["universe_name"].unique().tolist() == ["CURRENT_SURVIVORS"]
+
+
+def test_update_inherits_current_universe_scope_from_database_status(data_config) -> None:
+    initial = DatabaseBuilder(data_config, FakeClient(), universe_scope="CURRENT_UNIVERSE_ONLY")
+    initial.write_database_status("READY_CURRENT_UNIVERSE_ONLY", phase0_gate_passed=False)
+
+    scope = _existing_database_scope(data_config)
+    updater = DatabaseBuilder(data_config, FakeClient(), universe_scope=scope)
+    updater.ingest_market(
+        ["000001.SZ"], "stock", date(2026, 1, 1), date(2026, 1, 5), download=False
+    )
+    manifest = updater.store.load_active("processed", "stock_daily")
+    status = json.loads(
+        (data_config.data_root / "metadata" / "database_status.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest is not None
+    assert manifest.metadata["universe_scope"] == "CURRENT_UNIVERSE_ONLY"
+    assert status["state"] == "READY_CURRENT_UNIVERSE_ONLY"
+    assert status["accepted_for_unbiased_backtest"] is False
 
 
 def test_research_api_enforces_point_in_time_and_mapping_semantics(data_config) -> None:

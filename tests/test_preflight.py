@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from qmt_local_data.cli import main
 
 from qmt_local_data.preflight import PreflightRunner, enforce_current_universe_preflight
 
@@ -49,3 +50,16 @@ def test_current_universe_gate_allows_only_delisted_stock_gap(data_config) -> No
     assert report.current_universe_gate_passed
     assert next(r for r in report.results if r.name == "delisted_a_share_discovery").status == "EMPTY"
     enforce_current_universe_preflight(report)
+
+
+def test_current_universe_flag_requires_download_confirmation(capsys) -> None:
+    result = main(
+        [
+            "init",
+            "--config",
+            "config/data_config.yaml",
+            "--allow-current-universe-only",
+        ]
+    )
+    assert result == 2
+    assert "requires --confirm-full-download" in capsys.readouterr().err
