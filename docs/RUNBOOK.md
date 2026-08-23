@@ -39,6 +39,24 @@ python scripts/init_database.py --config config/data_config.yaml
 python scripts/init_database.py --config config/data_config.yaml --confirm-full-download
 ```
 
+### 临时当前股票池模式
+
+当且仅当退市 A 股发现是唯一未解决的完整性缺口，且项目负责人明确接受幸存者偏差时，
+可以执行：
+
+```powershell
+python scripts/init_database.py --config config/data_config.yaml `
+  --confirm-full-download --allow-current-universe-only
+```
+
+该模式使用与正式库相同的 Raw/Processed/Derived/DuckDB 架构，但有以下不可绕过的标识：
+
+- database status 为 `READY_CURRENT_UNIVERSE_ONLY`；
+- manifest metadata 写入 `universe_scope=CURRENT_UNIVERSE_ONLY`；
+- 股票池名称为 `CURRENT_SURVIVORS`，禁止发布为 `ALL_A`；
+- `accepted_for_unbiased_backtest=false`；
+- 后续补齐退市证券后，通过新 run 重建 `ALL_A`，不覆盖现有 Raw。
+
 全量流程采用项目级单写者锁、有限证券批次、不可变 run、原子 active manifest 和 checkpoint。进程中断后重新运行同一范围会跳过 fingerprint 一致的成功批次。
 
 ## 3. 增量更新

@@ -11,7 +11,11 @@ from .errors import QmtLocalDataError
 from .lock import ProjectLock
 from .manifest import ManifestStore
 from .pipeline import DatabaseBuilder
-from .preflight import PreflightRunner, enforce_preflight
+from .preflight import (
+    PreflightRunner,
+    enforce_current_universe_preflight,
+    enforce_preflight,
+)
 from .qmt_client import XtDataClient
 from .storage_guard import StorageGuard
 
@@ -43,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--start", type=_date)
     init.add_argument("--end", type=_date, default=date.today())
     init.add_argument("--skip-financial", action="store_true")
+    init.add_argument(
+        "--allow-current-universe-only",
+        action="store_true",
+        help="Explicitly build a survivorship-biased temporary database when only delisted-stock checks fail",
+    )
 
     update = sub.add_parser("update", parents=[common])
     update.add_argument("--codes", nargs="+")
@@ -59,21 +68,34 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_init(args: argparse.Namespace, config, client: XtDataClient) -> int:
     if not args.confirm_full_download:
         print("Dry run only. Pass --confirm-full-download to execute full initialization.")
-        print(json.dumps({"data_root": str(config.data_root), "start": str(args.start or config.project.history_start), "end": str(args.end)}, ensure_ascii=False))
+        print(json.dumps({
+            "data_root": str(config.data_root),
+            "start": str(args.start or config.project.history_start),
+            "end": str(args.end),
+            "universe_scope": "CURRENT_UNIVERSE_ONLY" if args.allow_current_universe_only else "FULL_HISTORY",
+        }, ensure_ascii=False))
         return 0
     report = PreflightRunner(config, client).run(download_history_contracts=False, allow_sample_download=False)
-    enforce_preflight(report)
-    builder = DatabaseBuilder(config, client)
+    if args.allow_current_universe_only:
+        enforce_current_universe_preflight(report)
+        universe_scope = "CURRENT_UNIVERSE_ONLY"
+        universe_name = "CURRENT_SURVIVORS"
+    else:
+        enforce_preflight(report)
+        universe_scope = "FULL_HISTORY"
+        universe_name = "ALL_A"
+    builder = DatabaseBuilder(config, client, universe_scope=universe_scope)
     start = args.start or config.project.history_start
     end = args.end
     with ProjectLock(config.data_root):
+        builder.write_database_status(f"INITIALIZING_{universe_scope}", report.gate_passed)
         builder.build_trade_calendar("SH", start, end)
         current_codes = client.discover_codes(config.markets.stock_sectors, config.markets.stock_suffixes)
         delisted, _ = client.discover_historical_candidates(config.futures.products)
         futures = client.discover_cffex_contracts(config.futures.products)
-        stock_codes = sorted(set(current_codes) | set(delisted))
+        stock_codes = sorted(set(current_codes) | (set() if args.allow_current_universe_only else set(delisted)))
         builder.build_security_master(stock_codes, asset="stock")
-        builder.build_universe()
+        builder.build_universe(universe_name)
         builder.ingest_market(stock_codes, "stock", start, end, download=True)
         builder.ingest_market(config.markets.indexes, "index", start, end, download=True)
         if futures:
@@ -87,6 +109,13 @@ def _run_init(args: argparse.Namespace, config, client: XtDataClient) -> int:
             builder.build_futures_derived()
         builder.refresh_catalog()
         builder.write_storage_audit()
+        status = builder.write_database_status(f"READY_{universe_scope}", report.gate_passed)
+        print(json.dumps({
+            "state": f"READY_{universe_scope}",
+            "stock_count": len(stock_codes),
+            "future_contract_count": len(futures),
+            "database_status": str(status),
+        }, ensure_ascii=False))
     return 0
 
 

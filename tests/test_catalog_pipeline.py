@@ -4,6 +4,7 @@ from datetime import date
 
 import duckdb
 import pandas as pd
+import pytest
 
 from qmt_local_data.catalog import CatalogBuilder, ViewSpec
 from qmt_local_data.manifest import ManifestStore
@@ -62,6 +63,41 @@ def test_market_pipeline_checkpoint_makes_resume_idempotent(data_config) -> None
     assert second == []
     active = builder.store.read_active_frame("processed", "stock_daily", ["trade_date", "stock_code"])
     assert len(active) == 2
+
+
+def test_current_universe_scope_cannot_publish_all_a(data_config) -> None:
+    builder = DatabaseBuilder(data_config, FakeClient(), universe_scope="CURRENT_UNIVERSE_ONLY")
+    with pytest.raises(ValueError, match="cannot publish a universe named ALL_A"):
+        builder.build_universe()
+
+
+def test_current_universe_is_published_with_explicit_scope(data_config) -> None:
+    builder = DatabaseBuilder(data_config, FakeClient(), universe_scope="CURRENT_UNIVERSE_ONLY")
+    builder.store.publish_frame(
+        "processed",
+        "security_master",
+        pd.DataFrame(
+            {"stock_code": ["000001.SZ"], "list_date": [date(2020, 1, 1)], "delist_date": [None]}
+        ),
+        "1.0",
+    )
+    builder.store.publish_frame(
+        "processed",
+        "trade_calendar",
+        pd.DataFrame(
+            {"market": ["SH"], "trade_date": [date(2026, 1, 5)], "is_open": [True]}
+        ),
+        "1.0",
+    )
+    builder.build_universe("CURRENT_SURVIVORS")
+    manifest = builder.store.load_active("derived", "historical_universe")
+    frame = builder.store.read_active_frame(
+        "derived", "historical_universe", ["universe_name", "trade_date", "stock_code"]
+    )
+    assert manifest is not None
+    assert manifest.metadata["universe_scope"] == "CURRENT_UNIVERSE_ONLY"
+    assert manifest.metadata["accepted_for_unbiased_backtest"] is False
+    assert frame["universe_name"].unique().tolist() == ["CURRENT_SURVIVORS"]
 
 
 def test_research_api_enforces_point_in_time_and_mapping_semantics(data_config) -> None:

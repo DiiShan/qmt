@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from qmt_local_data.preflight import PreflightRunner
+from qmt_local_data.preflight import PreflightRunner, enforce_current_universe_preflight
 
 
 class FakePreflightClient:
@@ -37,3 +37,15 @@ def test_preflight_gate_passes_only_with_all_five_capabilities(data_config) -> N
         "expired_cffex_discovery",
         "expired_cffex_daily",
     }
+
+
+def test_current_universe_gate_allows_only_delisted_stock_gap(data_config) -> None:
+    class MissingDelistedClient(FakePreflightClient):
+        def discover_historical_candidates(self, products):
+            return [], ["IF2001.IF"]
+
+    report = PreflightRunner(data_config, MissingDelistedClient()).run()
+    assert not report.gate_passed
+    assert report.current_universe_gate_passed
+    assert next(r for r in report.results if r.name == "delisted_a_share_discovery").status == "EMPTY"
+    enforce_current_universe_preflight(report)

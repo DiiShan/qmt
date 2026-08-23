@@ -65,3 +65,13 @@ annualized_basis  = basis_pct * 365 / days_to_expiry
 `get_future_daily`、`get_future_main`、`get_future_basis`、`get_universe` 和
 `get_financial_pit`。`get_future_main` 强制调用者明确指定 `EOD_OBSERVED` 或
 `NEXT_TRADE_DAY`，不提供有歧义的默认值。
+
+## 数据库接受状态
+
+`metadata/database_status.json` 是研究使用前必须检查的状态文件：
+
+- `READY_FULL_HISTORY`：只有 Phase 0 完整 Gate PASS 后才可用于无偏历史全市场回测；
+- `READY_CURRENT_UNIVERSE_ONLY`：只含初始化时仍可发现的股票，存在幸存者偏差；
+- `INITIALIZING_*`：初始化未完成，不得作为稳定研究输入。
+
+临时模式的历史股票池固定命名为 `CURRENT_SURVIVORS`，不能命名为 `ALL_A`。

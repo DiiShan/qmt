@@ -74,6 +74,16 @@ python scripts/init_database.py --config config/data_config.yaml
 python scripts/init_database.py --config config/data_config.yaml --confirm-full-download
 ```
 
+若项目负责人已明确接受退市股票缺失造成的幸存者偏差，可以建立可升级的临时当前股票池库：
+
+```powershell
+python scripts/init_database.py --config config/data_config.yaml `
+  --confirm-full-download --allow-current-universe-only
+```
+
+临时库会标记为 `CURRENT_UNIVERSE_ONLY`，股票池名为 `CURRENT_SURVIVORS`，不能作为正式
+无偏历史全市场回测库。后续补齐退市证券后通过新 manifest run 升级，无需删除已有 Raw。
+
 完整命令、失败恢复与安全边界见 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)，字段契约见 [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md)。
 
 ## 当前 QMT 数据权限基线

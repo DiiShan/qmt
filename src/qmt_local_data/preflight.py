@@ -44,6 +44,17 @@ class PreflightReport:
         passed = {result.name for result in self.results if result.status == "PASS"}
         return required <= passed
 
+    @property
+    def current_universe_gate_passed(self) -> bool:
+        """Reduced gate for an explicitly labelled survivorship-biased temporary database."""
+        required = {
+            "current_a_share_daily",
+            "expired_cffex_discovery",
+            "expired_cffex_daily",
+        }
+        passed = {result.name for result in self.results if result.status == "PASS"}
+        return required <= passed
+
     def to_dict(self) -> dict:
         return {
             "generated_at": self.generated_at,
@@ -168,3 +179,10 @@ class PreflightRunner:
 def enforce_preflight(report: PreflightReport) -> None:
     if not report.gate_passed:
         raise CapabilityGateError("Phase 0 gate is BLOCKED; do not start full initialization")
+
+
+def enforce_current_universe_preflight(report: PreflightReport) -> None:
+    if not report.current_universe_gate_passed:
+        raise CapabilityGateError(
+            "Current-universe gate is BLOCKED; current stock and expired CFFEX samples must pass"
+        )
