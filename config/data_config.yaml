@@ -1,0 +1,48 @@
+project:
+  data_root: 'E:\qmt_data'
+  timezone: Asia/Shanghai
+  history_start: '2011-01-01'
+  history_fallback_start: '2014-01-01'
+  stock_period: 1d
+  compression: zstd
+
+storage:
+  target_gb: 25
+  warning_gb: 30
+  hard_limit_gb: 40
+  future_project_ceiling_gb: 100
+  minimum_free_gb: 10
+  batch_safety_factor: 1.25
+  qmt_cache_path: null
+
+ingestion:
+  initial_batch_size: 100
+  max_retries: 3
+  retry_backoff_seconds: [5, 30, 120]
+  revision_lookback_trade_days: 10
+  financial_download_batch_reserve_mb: 256
+
+markets:
+  stock_sectors: [沪深京A股, 沪深A股, 京市A股]
+  stock_suffixes: [.SH, .SZ, .BJ]
+  indexes: [000001.SH, 000016.SH, 000300.SH, 000905.SH, 000852.SH]
+
+futures:
+  products: [IF, IH, IC, IM]
+  main_rule_version: oi_then_volume_v1
+  spot_mapping:
+    IH: 000016.SH
+    IF: 000300.SH
+    IC: 000905.SH
+    IM: 000852.SH
+
+financial:
+  tables:
+    - Balance
+    - Income
+    - CashFlow
+    - Capital
+    - HolderNum
+    - Top10Holder
+    - Top10FlowHolder
+    - PershareIndex

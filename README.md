@@ -22,7 +22,57 @@ Factor / Strategy / Backtest / Risk
 
 完整路线图见 [`量化系统总体规划.md`](量化系统总体规划.md)。当前可直接交给 Codex 执行的数据库建设方案见 [`本地数据库构建计划.md`](本地数据库构建计划.md)，其中已经冻结 v1 数据范围、历史区间、Raw/Processed/DuckDB 职责、期货主链与基差设计、容量预算和验收标准。
 
+执行级、经过独立 Review 收敛的计划见 [`本地数据库构建计划_codex.md`](本地数据库构建计划_codex.md)。数据库 v1 代码位于 `src/qmt_local_data/`，默认数据根目录为 `E:\qmt_data`；可在本地配置中修改，但源码不硬编码其他机器路径。
+
 第一阶段优先建设 **全 A 股日线 + 财务八表 + 复权/状态/交易日历 + 主要指数 + CFFEX 股指期货实际合约 + 本地 DuckDB/Parquet 数据底座**，分钟、tick、期权和实时能力后置到策略确有需要时再扩展。
+
+## 本地数据库 v1 首轮实现
+
+代码已经实现：
+
+- 不可变 Raw/Processed/Derived Parquet run；
+- 原子 active manifest、SHA-256、lineage 与 checkpoint；
+- 单写者锁和容量守卫；
+- XtData 日线、财务、交易日历、证券/合约资料适配；
+- 财务公告日后的首个交易日 PIT 可见性；
+- EOD 与下一交易日两种主力映射；
+- 股指期货自然日单利年化基差；
+- DuckDB 去重 views；
+- 离线单元/集成测试以及 MiniQMT 实机 Preflight。
+
+当前代码是计划的可运行基础与各数据层实现，**不代表 v1 数据已经全量建成**。
+2026-08-23 的实机 Preflight 已确认当前 A 股和过期 CFFEX 合约日线可读，但
+MiniQMT 当前未能发现退市 A 股候选，因此 Phase 0 Gate 仍为 `BLOCKED`；程序按计划
+拒绝启动全量初始化，不能用当前股票列表回填历史。去敏结论见
+[`docs/PREFLIGHT_REPORT.md`](docs/PREFLIGHT_REPORT.md)。
+
+安装开发依赖：
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+先执行 Phase 0，不要直接全量下载：
+
+```powershell
+python scripts/preflight_database.py --config config/data_config.yaml
+```
+
+首次验证历史退市证券和过期 CFFEX 合约：
+
+```powershell
+python scripts/preflight_database.py --config config/data_config.yaml `
+  --download-history-contracts --allow-sample-download
+```
+
+不带确认参数的初始化是 dry run；只有 Preflight 五项 Gate 全部 PASS 后，才能显式启动全量：
+
+```powershell
+python scripts/init_database.py --config config/data_config.yaml
+python scripts/init_database.py --config config/data_config.yaml --confirm-full-download
+```
+
+完整命令、失败恢复与安全边界见 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)，字段契约见 [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md)。
 
 ## 当前 QMT 数据权限基线
 

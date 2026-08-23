@@ -1,0 +1,29 @@
+datasets:
+  stock_daily:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [trade_date, stock_code]
+  index_daily:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [trade_date, index_code]
+  future_daily:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [trade_date, contract_code]
+  security_master:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [stock_code]
+  trade_calendar:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [market, trade_date]
+  future_main_mapping:
+    layer: derived
+    schema_version: '1.0'
+    business_key: [mapping_type, effective_trade_date, product]
+  future_basis_daily:
+    layer: derived
+    schema_version: '1.0'
+    business_key: [trade_date, contract_code]
