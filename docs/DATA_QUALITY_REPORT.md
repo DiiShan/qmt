@@ -2,6 +2,10 @@
 
 > 当前文件是代码阶段的报告模板。真实全量运行后由 `validate_database.py` 和 manifest 中的 quality metadata 更新实际统计。
 
+当前已确认的退市 A 股发现缺口、幸存者偏差风险、控制措施和关闭标准见
+[`DATA_QUALITY_AND_RISK_REPORT.md`](DATA_QUALITY_AND_RISK_REPORT.md)。该风险关闭前，本文不得
+被解释为全量数据库已通过质量验收。
+
 已实现的阻断规则：
 
 - 必需字段；

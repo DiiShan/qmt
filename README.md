@@ -45,6 +45,8 @@ Factor / Strategy / Backtest / Risk
 MiniQMT 当前未能发现退市 A 股候选，因此 Phase 0 Gate 仍为 `BLOCKED`；程序按计划
 拒绝启动全量初始化，不能用当前股票列表回填历史。去敏结论见
 [`docs/PREFLIGHT_REPORT.md`](docs/PREFLIGHT_REPORT.md)。
+退市证券发现缺口对数据质量和回测的影响、当前控制措施及风险关闭条件见
+[`docs/DATA_QUALITY_AND_RISK_REPORT.md`](docs/DATA_QUALITY_AND_RISK_REPORT.md)。
 
 安装开发依赖：
 

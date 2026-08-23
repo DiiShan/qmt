@@ -8,6 +8,9 @@
 >
 > 结论：`BLOCKED`，未启动全量初始化
 
+相关数据质量、回测风险、暂缓决定与风险关闭标准见
+[`DATA_QUALITY_AND_RISK_REPORT.md`](DATA_QUALITY_AND_RISK_REPORT.md)。
+
 ## 去敏结果
 
 | 检查 | 状态 | 证据 |
