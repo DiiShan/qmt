@@ -61,6 +61,40 @@ python scripts/init_database.py --config config/data_config.yaml `
 
 ## 3. 增量更新
 
+### 3.1 推荐：一键更新
+
+先只查看自动计算的回看区间：
+
+```powershell
+python scripts/update_database.py --config config/data_config.yaml --dry-run
+```
+
+执行日常核心更新：
+
+```powershell
+python scripts/update_database.py --config config/data_config.yaml
+```
+
+脚本按 `revision_lookback_trade_days` 自动回看交易日，依次维护交易日历、A 股日线、
+`markets.indexes` 中全部指数、官方当前/退市证券参考、指数/行业成分快照，最后刷新 Catalog、
+数据库状态、Manifest 校验和容量审计。`000002.SH`、`399107.SZ` 已包含在配置，因此自动更新。
+
+需要把财务、公司行动、复权因子、历史股票池和全部波动率派生层也重建到同一截止日时：
+
+```powershell
+python scripts/update_database.py --config config/data_config.yaml --full
+```
+
+`--full` 会从项目历史起点重建大型 Derived 数据，确保当前股票池变化不会留下旧口径，但会
+明显增加运行时间和不可变历史 run 的磁盘占用。CFFEX 期货三项仍因历史合约源未闭环而明确
+保留为人工更新，不在一键脚本中伪装成完整更新。
+
+维护约束：以后新增、删除或改变 `config/datasets.yaml` 中的数据集时，必须同步修改
+`qmt_local_data.maintenance` 的 `DAILY_MAINTAINED_DATASETS`、`FULL_REBUILD_DATASETS` 或
+`MANUAL_DATASETS` 分类。`tests/test_maintenance.py` 会在存在未分类数据集时失败。
+
+### 3.2 底层单项命令
+
 ```powershell
 python scripts/update_daily.py --config config/data_config.yaml `
   --start 2026-08-01 --end 2026-08-23 --download

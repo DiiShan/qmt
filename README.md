@@ -105,6 +105,16 @@ python scripts/init_database.py --config config/data_config.yaml `
 
 完整命令、失败恢复与安全边界见 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)，字段契约见 [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md)。
 
+日常一键更新先预览范围，再执行：
+
+```powershell
+python scripts/update_database.py --config config/data_config.yaml --dry-run
+python scripts/update_database.py --config config/data_config.yaml
+```
+
+默认更新日常核心数据并完成校验；需要同时重建财务、公司行动、复权因子、历史股票池和
+全部波动率数据时显式增加 `--full`。完整模式会重写大型 Derived active run，应预留时间和磁盘。
+
 波动率 Derived 数据构建完成后，可启动只读可视化界面：
 
 ```powershell

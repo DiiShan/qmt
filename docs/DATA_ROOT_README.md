@@ -257,8 +257,13 @@ Raw 与 Processed 的确各保存了一份逻辑数据，但“保存两份”�
 
 ```powershell
 # 每日收盘后更新
-python scripts/update_daily.py --config config/data_config.yaml `
-  --start <开始日期> --end <结束日期> --download
+python scripts/update_database.py --config config/data_config.yaml
+
+# 先预览自动回看范围
+python scripts/update_database.py --config config/data_config.yaml --dry-run
+
+# 包含财务、公司行动、复权因子、历史股票池和波动率完整重建
+python scripts/update_database.py --config config/data_config.yaml --full
 
 # 校验所有活动 manifest
 python scripts/validate_database.py --config config/data_config.yaml

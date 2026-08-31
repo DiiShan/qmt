@@ -337,11 +337,15 @@ sw1 = data.get_sector_membership("SW1")
 在代码仓库目录运行：
 
 ```powershell
-python scripts/update_daily.py --config config/data_config.yaml `
-  --start <开始日期> --end <结束日期> --download
+python scripts/update_database.py --config config/data_config.yaml --dry-run
+python scripts/update_database.py --config config/data_config.yaml
 python scripts/validate_database.py --config config/data_config.yaml
 python scripts/storage_audit.py --config config/data_config.yaml
 ```
+
+需要连同财务、公司行动、复权因子、历史股票池和波动率 Derived 一并重建时，使用
+`python scripts/update_database.py --config config/data_config.yaml --full`。完整模式耗时和磁盘
+占用显著高于日常核心更新。
 
 更新是追加发布；DuckDB 活动视图负责按业务主键选择最新版本。不要在更新进程运行时启动另一个写入进程。
 
