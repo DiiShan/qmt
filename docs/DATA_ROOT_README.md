@@ -1,7 +1,7 @@
 # QMT 本地数据库目录说明
 
 > 数据根目录：`E:\qmt_data`  
-> 本说明基于 2026-08-23 初始化结果。数据库当前状态为
+> 本说明基于 2026-08-31 活动数据库审计结果。数据库当前状态为
 > `READY_CURRENT_UNIVERSE_ONLY`，不包含已退市 A 股，不能用于无幸存者偏差的全市场历史回测。
 
 ## 1. 使用前先看这里
@@ -87,11 +87,15 @@ raw\stock_daily\run_id=<运行标识>\
 
 这里的 Raw 不是“市场上从 2011 年至今的一切数据”。当前 Raw 的准确范围是：
 
-- 5,556 只**当前仍上市** A 股的日线，请求区间为 2011-01-01 至 2026-08-23，
-  实际交易日为 2011-01-04 至 2026-08-21；每只股票只会从其真实上市后开始有行情；
+- 5,554 只当前上市 A 股的有效日线，请求起点为 2011-01-01，实际交易日为
+  2011-01-04 至 2026-08-21；每只股票只会从其真实上市后开始有行情；
 - 上述当前股票对应的八类财务数据和 corporate action 原始数据；
-- 5 个主要指数日线；
+- 9 个指数日线；其中 `000002.SH` 与 `399107.SZ` 覆盖沪、深 A 股市场成交统计；
 - 12 个近期中金所合约的诊断数据。
+
+早期 Raw 捕获曾从“京市 A 股”板块带入 `899050.BJ`、`899601.BJ` 两个指数代码。Raw
+按审计原则保留原始记录；2026-08-31 起 Processed `stock_daily`、`daily_bar` 和后续股票发现
+均通过 XtData `get_instrument_type()` 明确限定为股票，不再把这两个指数解释为 A 股。
 
 它不包含已退市 A 股、完整历史期货、分钟/Tick/盘口/逐笔数据，也不代表交易所所有可获得数据。
 
@@ -106,6 +110,8 @@ raw\stock_daily\run_id=<运行标识>\
 - `security_master`：证券主表；
 - `future_contract_master`：期货合约主表；
 - `trade_calendar`：交易日历。
+- `current_stock_list` / `delisted_stock_list`：当前与已退市证券的官方参考清单；
+- `index_membership_snapshot_daily` / `sector_membership_snapshot_daily`：从首次观察日起积累的成分快照。
 
 Raw 与 Processed 同时保留是有意设计：Raw 用于追溯，Processed 用于稳定研究接口。
 
@@ -114,6 +120,8 @@ Raw 与 Processed 同时保留是有意设计：Raw 用于追溯，Processed 用
 - `historical_universe`：每日股票样本空间。当前名称为 `CURRENT_SURVIVORS`，只包含现在仍上市的股票；
 - `future_main_mapping`：期货主力合约映射；
 - `future_basis_daily`：期货相对现货指数的基差。
+- `adjust_factor`：经过真实案例审计的股票复权因子；
+- `stock_vol_daily`、`market_vol_daily`、`index_vol_daily`：个股、双口径市场和宽基指数波动率。
 
 ### `database/`：DuckDB 查询入口
 
@@ -144,6 +152,14 @@ daily_bar 视图
 - `historical_universe`
 - `future_main_mapping`
 - `future_basis_daily`
+- `current_stock_list`
+- `delisted_stock_list`
+- `index_membership_snapshot_daily`
+- `sector_membership_snapshot_daily`
+- `adjust_factor`
+- `stock_vol_daily`
+- `market_vol_daily`
+- `index_vol_daily`
 
 视图会依据活动 manifest 对多次追加运行按业务主键去重。
 
@@ -172,44 +188,48 @@ corporate-action 初始化，约 68.6 MiB。它不参与 DuckDB 查询，也不�
 
 | 数据 | 当前结果 |
 |---|---:|
-| 当前上市 A 股证券数 | 5,556 |
-| 股票日线 | 16,350,700 行 |
+| 当前上市 A 股证券数 | 5,554 |
+| 有效股票日线 | 16,347,736 行 |
 | 股票日线日期 | 2011-01-04 ～ 2026-08-21 |
 | 财务 Raw/Processed 活动行数 | 各 5,806,480 行 |
 | 财务 PIT 查询视图 | 1,384,430 行 |
 | 历史样本空间 | 13,498,712 行 |
-| 指数日线 | 18,990 行，5 个指数 |
+| 指数日线 | 34,198 行，9 个指数；整体最大日期 2026-08-31 |
+| 股票波动率 | 13,492,600 行，至 2026-08-21 |
+| 市场波动率 | 7,596 行，两个当前幸存者口径，至 2026-08-21 |
+| 指数波动率 | 20,600 行，6 个宽基指数，至 2026-08-21 |
 | 期货日线物理记录 | 1,692 行，12 个合约；含上市前空占位行，暂不可用于正式回测 |
 | 期货物理日期 | 2026-01-19 ～ 2026-08-21；不等于每个合约的真实交易期 |
 | corporate action | 45,965 行，56 个批次 |
 
-## 4. 为什么计划约 10–20 GB，实际只有约 1.4 GiB
+## 4. 为什么计划约 10–20 GB，当前约 4.21 GiB
 
 原计划中的 10–20 GB 是保守的工程容量预算，不是数据库必须达到的大小。计划原文也明确：
 “这是工程预算，不是对 QMT 实际压缩率的承诺；必须在真实数据落盘后报告实际大小。”
 
-2026-08-23 的实际占用为：
+2026-08-31 的目录实际占用为：
 
 | 位置/数据集 | 实际占用 |
 |---|---:|
-| `raw/financial` | 442.51 MiB |
-| `processed/financial` | 399.66 MiB |
-| `raw/stock_daily` | 262.08 MiB |
-| `processed/stock_daily` | 254.50 MiB |
-| `derived/historical_universe` | 11.18 MiB |
-| 其他活动数据与 metadata | 约 5 MiB |
+| `raw/` | 约 707.45 MiB |
+| `processed/` | 约 963.09 MiB；包含修复前后不可变 run，active manifest 只引用修复后版本 |
+| `derived/` | 约 2,565.90 MiB；包含复权因子、三类波动率和不可变历史 run |
+| `metadata/` 与 `database/` | 约 4.13 MiB |
 | `quarantine/`（不参与查询） | 68.63 MiB |
-| `E:\qmt_data` 合计 | 约 1.412 GiB |
+| `E:\qmt_data` 合计 | 约 4.21 GiB |
 
 Raw 与 Processed 的确各保存了一份逻辑数据，但“保存两份”不等于“保存两份未压缩 CSV”：
 
-- 股票日线 Raw：16,350,700 行、262.08 MiB，约 16.8 bytes/行；
-- 股票日线 Processed：16,350,700 行、254.50 MiB，约 16.3 bytes/行；
+- 2026-08-23 初始股票日线 Raw：16,350,700 行、262.08 MiB，约 16.8 bytes/行；
+- 2026-08-23 初始股票日线 Processed：16,350,700 行、254.50 MiB，约 16.3 bytes/行；
 - 财务 Raw + Processed：合计约 842.17 MiB；
-- 整个 Raw 约 0.690 GiB，整个 Processed 约 0.640 GiB，两层合计约 1.330 GiB。
+- 2026-08-23 初始 Raw 约 0.690 GiB、Processed 约 0.640 GiB；当前 Processed 因保留
+  修复前后不可变 run 增至约 0.940 GiB。
 
 股票代码、日期和数值列重复度很高，Parquet 的列式编码加 Zstd 压缩可以把逻辑数据大幅压缩。
-所以当前范围内 Raw + Processed 约 1.33 GiB 是可解释的；但当前范围本身仍不是原计划的完整历史市场范围。
+当前物理目录会保留已被 replace 的不可变历史 run，因此不能只用顶层目录大小推算 active
+数据量。Raw、Processed 与 Derived 合计约 4.21 GiB 是可解释的；但当前范围本身仍不是无幸存者
+偏差的完整历史市场范围。
 
 偏差来源：
 
@@ -227,8 +247,8 @@ Raw 与 Processed 的确各保存了一份逻辑数据，但“保存两份”�
    `E:\qmt_data` 与该缓存合计约 4.923 GiB，但二者职责不同，不能简单合并为数据库文件大小。
 6. **v1 没有分钟、Tick、盘口和逐笔数据。** 当前主要是日频数据；这些高频数据才会快速消耗数十 GB。
 
-因此，1.4 GiB 本身不是“日线漏下载”的证据：活动 manifest 已验证，DuckDB 中股票日线确有
-1,635 万行并覆盖 2011-01-04 至 2026-08-21。不过，退市 A 股和完整历史期货仍是明确的数据范围缺口，
+因此，当前 4.21 GiB 的大小本身不是“日线漏下载”的证据：活动 manifest 已验证，DuckDB 中
+有效股票日线约 1,635 万行并覆盖 2011-01-04 至 2026-08-21。不过，退市 A 股和完整历史期货仍是明确的数据范围缺口，
 应继续保留在数据质量与风险报告中。
 
 ## 5. 常用命令
@@ -237,7 +257,8 @@ Raw 与 Processed 的确各保存了一份逻辑数据，但“保存两份”�
 
 ```powershell
 # 每日收盘后更新
-python scripts/update_database.py --config config/data_config.yaml
+python scripts/update_daily.py --config config/data_config.yaml `
+  --start <开始日期> --end <结束日期> --download
 
 # 校验所有活动 manifest
 python scripts/validate_database.py --config config/data_config.yaml

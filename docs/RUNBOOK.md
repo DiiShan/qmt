@@ -73,6 +73,10 @@ python scripts/update_daily.py --config config/data_config.yaml --asset index `
   --start 2026-08-01 --end 2026-08-23 --download
 ```
 
+当前配置同时维护 `000002.SH`（上证 A 股指数）和 `399107.SZ`（深证 A 指）。每日指数更新
+成功后，可按交易日汇总两者的 `amount` 得到沪深 A 股成交额；完整性检查必须确认当日两只
+指数均存在。
+
 上游缺行不会自动解释为删除。重复业务主键由 DuckDB view 按 `_ingested_at` 和 `source_run_id` 选择最新已发布版本。
 
 ## 4. 验证与容量

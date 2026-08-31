@@ -26,7 +26,16 @@ def data_config(tmp_path: Path) -> DataConfig:
         markets=MarketsConfig(
             ("沪深A股",),
             (".SH", ".SZ", ".BJ"),
-            ("000016.SH", "000300.SH", "000905.SH", "000852.SH", "000688.SH", "399006.SZ"),
+            (
+                "000002.SH",
+                "000016.SH",
+                "000300.SH",
+                "000905.SH",
+                "000852.SH",
+                "000688.SH",
+                "399006.SZ",
+                "399107.SZ",
+            ),
         ),
         futures=FuturesConfig(("IF", "IH", "IC", "IM"), "oi_then_volume_v1", {"IF": "000300.SH"}),
         financial=FinancialConfig(("Balance",)),

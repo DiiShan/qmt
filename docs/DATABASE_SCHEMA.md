@@ -15,6 +15,10 @@
 
 每个 Processed/Derived row 还包含 `source_run_id` 与 `_ingested_at`。DuckDB view 按业务主键选择最新已发布版本；物理 Parquet run 不原地修改。
 
+`index_daily` 当前配置 9 个指数。其中 `000002.SH`（上证 A 股指数）和 `399107.SZ`
+（深证 A 指）用于沪深 A 股市场成交统计；按 `trade_date` 将两者的 `amount` 相加得到
+沪深 A 股每日成交额。北交所全市场没有对应的单一完整指数，沪深京全 A 仍须逐股聚合。
+
 `security_master.delist_date_quality` 记录退市日来源质量。只有 XtData 返回实机确认的
 `10001011/10001111/10011011/10011111/10111111` 哨兵值时，标准化层才令
 `delist_date=NULL` 并标记 `INVALID_SENTINEL_IGNORED`。其他早于上市日的可解析日期原样

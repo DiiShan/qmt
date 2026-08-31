@@ -110,6 +110,31 @@ financial = data.get_financial_pit(
 
 所有日期参数使用 `datetime.date`。空代码列表返回空 DataFrame。
 
+### 沪深 A 股每日成交额
+
+当前 `index_daily` 已包含：
+
+- `000002.SH`：上证 A 股指数；
+- `399107.SZ`：深证 A 指。
+
+两个指数的 `amount` 按交易日相加，可作为沪深 A 股每日成交额。市场通常所说的“成交量
+达到多少万亿元”实际指成交额，应优先使用 `amount`；`volume` 是成交数量，不能与成交额混用。
+
+```sql
+SELECT
+    trade_date,
+    SUM(amount) AS sh_sz_a_share_amount,
+    SUM(volume) AS sh_sz_a_share_volume
+FROM index_daily
+WHERE index_code IN ('000002.SH', '399107.SZ')
+GROUP BY trade_date
+HAVING COUNT(DISTINCT index_code) = 2
+ORDER BY trade_date;
+```
+
+`HAVING` 条件用于防止某日只存在一个市场的数据却被误报为完整沪深合计。该口径不含北交所；
+沪深京全 A 应从经过历史成员校验的股票池逐股汇总，当前库仍受退市证券历史覆盖限制。
+
 ### 财务 PIT 示例
 
 ```python
@@ -200,7 +225,7 @@ DuckDB 视图按业务主键选择 `_ingested_at` 最新的活动记录。策略
 
 ## 7. 股票策略的关键边界
 
-- 当前股票日线覆盖 2011-01-04 至 2026-08-21，共 5,556 只当前上市股票；
+- 当前有效股票日线覆盖 2011-01-04 至 2026-08-21，共 5,554 只当前上市股票；
 - 不包含已退市股票，因此历史截面选股和组合回测存在幸存者偏差；
 - `daily_bar` 为不复权价格，不要把长期收益直接解释为含分红总回报；
 - 停牌、零成交和缺失价格必须由策略显式处理；
@@ -312,7 +337,8 @@ sw1 = data.get_sector_membership("SW1")
 在代码仓库目录运行：
 
 ```powershell
-python scripts/update_database.py --config config/data_config.yaml
+python scripts/update_daily.py --config config/data_config.yaml `
+  --start <开始日期> --end <结束日期> --download
 python scripts/validate_database.py --config config/data_config.yaml
 python scripts/storage_audit.py --config config/data_config.yaml
 ```

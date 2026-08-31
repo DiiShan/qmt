@@ -35,6 +35,13 @@ class XtDataClient:
         value = self.xtdata.get_instrument_detail(code, True)
         return value if isinstance(value, dict) else {}
 
+    def instrument_type(self, code: str) -> dict[str, bool]:
+        getter = getattr(self.xtdata, "get_instrument_type", None)
+        if getter is None:
+            raise RuntimeError("XtData get_instrument_type is required for stock-universe discovery")
+        value = getter(code)
+        return value if isinstance(value, dict) else {}
+
     @property
     def data_dir(self) -> Path | None:
         getter = getattr(self.xtdata, "get_data_dir", None)
@@ -94,6 +101,16 @@ class XtDataClient:
             result.update(code for code in codes if not suffixes or code.endswith(suffixes))
         return sorted(result)
 
+    def discover_stock_codes(self, sectors: Iterable[str], suffixes: Iterable[str]) -> list[str]:
+        """Return only contracts that XtData explicitly classifies as stocks.
+
+        Some broker sector files include broad-market index contracts in an A-share
+        sector.  Suffix filtering alone cannot distinguish those contracts from BSE
+        stocks because both use ``.BJ``.
+        """
+        candidates = self.discover_codes(sectors, suffixes)
+        return sorted(code for code in candidates if self.instrument_type(code).get("stock") is True)
+
     def instrument_details(self, codes: Iterable[str]) -> dict[str, dict[str, Any]]:
         return {code: detail for code in codes if (detail := self.instrument_detail(code))}
 
@@ -126,7 +143,7 @@ class XtDataClient:
         today = date.today().strftime("%Y%m%d")
         sectors = self.sector_list()
         stock_sectors = [sector for sector in sectors if "A股" in sector and any(token in sector for token in ("沪深", "沪深京"))]
-        current_stocks = set(self.discover_codes(stock_sectors, (".SH", ".SZ", ".BJ")))
+        current_stocks = set(self.discover_stock_codes(stock_sectors, (".SH", ".SZ", ".BJ")))
         historical_stocks: set[str] = set()
         for sector in stock_sectors:
             for as_of in ("20150105", "20180102", "20200102", "20240102"):
@@ -141,6 +158,8 @@ class XtDataClient:
             if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", code, re.IGNORECASE):
                 continue
             try:
+                if self.instrument_type(code).get("stock") is not True:
+                    continue
                 detail = self.instrument_detail(code)
             except Exception:
                 continue

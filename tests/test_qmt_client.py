@@ -13,7 +13,7 @@ class FakeXtData:
     @staticmethod
     def get_stock_list_in_sector(sector, real_timetag=None):
         if sector == "沪深A股":
-            return ["000001.SZ", "600001.SH"] if real_timetag else ["000001.SZ"]
+            return ["000001.SZ", "600001.SH"] if real_timetag else ["000001.SZ", "899050.BJ"]
         if sector == "中金所":
             return ["IF2001.IF", "IF2609.IF", "IF2612.IF"]
         return []
@@ -26,6 +26,16 @@ class FakeXtData:
             "IF2612.IF": "20261218",
         }.get(code, "")
         return {"ExpireDate": expiry, "InstrumentName": code}
+
+    @staticmethod
+    def get_instrument_type(code):
+        return {"index": True} if code == "899050.BJ" else {"stock": True}
+
+
+def test_stock_discovery_excludes_index_contracts_from_a_share_sector() -> None:
+    client = XtDataClient(FakeXtData())
+
+    assert client.discover_stock_codes(["沪深A股"], (".SH", ".SZ", ".BJ")) == ["000001.SZ"]
 
 
 def test_expired_gate_discovery_is_separate_from_complete_cffex_universe() -> None:

@@ -6,6 +6,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import duckdb
+
 from .config import load_config
 from .errors import QmtLocalDataError
 from .lock import ProjectLock
@@ -139,7 +141,9 @@ def _run_init(args: argparse.Namespace, config, client: XtDataClient) -> int:
     with ProjectLock(config.data_root):
         builder.write_database_status(f"INITIALIZING_{universe_scope}", report.gate_passed)
         builder.build_trade_calendar("SH", start, end)
-        current_codes = client.discover_codes(config.markets.stock_sectors, config.markets.stock_suffixes)
+        current_codes = client.discover_stock_codes(
+            config.markets.stock_sectors, config.markets.stock_suffixes
+        )
         delisted, _ = client.discover_historical_candidates(config.futures.products)
         futures = client.discover_cffex_contracts(config.futures.products)
         stock_codes = sorted(set(current_codes) | (set() if args.allow_current_universe_only else set(delisted)))
@@ -297,6 +301,29 @@ def main(argv: list[str] | None = None) -> int:
                 _existing_database_scope(config)
             except QmtLocalDataError as exc:
                 errors.append(str(exc))
+            database_path = config.data_root / "database" / "qmt.duckdb"
+            if database_path.exists():
+                try:
+                    with duckdb.connect(str(database_path), read_only=True) as connection:
+                        invalid_stock_codes = [
+                            row[0]
+                            for row in connection.execute(
+                                """
+                                SELECT DISTINCT d.stock_code
+                                FROM daily_bar AS d
+                                LEFT JOIN security_master AS s USING (stock_code)
+                                WHERE s.stock_code IS NULL
+                                ORDER BY d.stock_code
+                                """
+                            ).fetchall()
+                        ]
+                    if invalid_stock_codes:
+                        errors.append(
+                            "daily_bar contains codes absent from security_master: "
+                            f"{invalid_stock_codes}"
+                        )
+                except duckdb.Error as exc:
+                    errors.append(f"Catalog relationship validation failed: {exc}")
             if errors:
                 print("\n".join(errors), file=sys.stderr)
                 return 2
@@ -402,9 +429,21 @@ def main(argv: list[str] | None = None) -> int:
                 if args.asset == "index":
                     codes = args.codes or list(config.markets.indexes)
                 else:
-                    codes = args.codes or client.discover_codes(
-                        config.markets.stock_sectors, config.markets.stock_suffixes
-                    )
+                    if args.codes:
+                        invalid_codes = [
+                            code
+                            for code in args.codes
+                            if client.instrument_type(code).get("stock") is not True
+                        ]
+                        if invalid_codes:
+                            raise ValueError(
+                                f"Stock update contains non-stock contracts: {invalid_codes}"
+                            )
+                        codes = args.codes
+                    else:
+                        codes = client.discover_stock_codes(
+                            config.markets.stock_sectors, config.markets.stock_suffixes
+                        )
                 with ProjectLock(config.data_root):
                     builder.ingest_market(codes, args.asset, args.start, args.end, download=args.download)
                     builder.refresh_catalog()

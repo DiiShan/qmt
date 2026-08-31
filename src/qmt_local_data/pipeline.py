@@ -376,7 +376,7 @@ class DatabaseBuilder:
         never be backfilled to dates before ``as_of``.
         """
         official_current, official_delisted = load_official_sh_sz_stock_reference(as_of)
-        qmt_codes = self.client.discover_codes(
+        qmt_codes = self.client.discover_stock_codes(
             self.config.markets.stock_sectors, self.config.markets.stock_suffixes
         )
         current = build_current_stock_snapshot(qmt_codes, official_current, as_of)
