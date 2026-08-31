@@ -13,8 +13,24 @@ datasets:
     business_key: [trade_date, contract_code]
   security_master:
     layer: processed
+    schema_version: '1.1'
+    business_key: [stock_code]
+  current_stock_list:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [as_of_date, stock_code]
+  delisted_stock_list:
+    layer: processed
     schema_version: '1.0'
     business_key: [stock_code]
+  index_membership_snapshot_daily:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [snapshot_date, index_code, stock_code]
+  sector_membership_snapshot_daily:
+    layer: processed
+    schema_version: '1.0'
+    business_key: [snapshot_date, sector_type, sector_code, stock_code]
   trade_calendar:
     layer: processed
     schema_version: '1.0'
@@ -27,3 +43,19 @@ datasets:
     layer: derived
     schema_version: '1.0'
     business_key: [trade_date, contract_code]
+  adjust_factor:
+    layer: derived
+    schema_version: '1.0'
+    business_key: [trade_date, stock_code]
+  stock_vol_daily:
+    layer: derived
+    schema_version: '1.0'
+    business_key: [trade_date, stock_code]
+  market_vol_daily:
+    layer: derived
+    schema_version: '1.0'
+    business_key: [trade_date, universe_name]
+  index_vol_daily:
+    layer: derived
+    schema_version: '1.0'
+    business_key: [trade_date, index_code]

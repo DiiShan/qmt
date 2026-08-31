@@ -5,12 +5,14 @@ import os
 import shutil
 import uuid
 from datetime import datetime
+from datetime import date as date_type
 from pathlib import Path
 from typing import Iterable, Literal
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import duckdb
 
 from .atomic import atomic_publish_directory, atomic_write_json, sha256_file
 from .models import DatasetManifest, FileRecord, RunStatus, utc_now
@@ -184,18 +186,39 @@ class ManifestStore:
         layer: str,
         dataset: str,
         business_key: Iterable[str] | None = None,
+        *,
+        columns: Iterable[str] | None = None,
+        date_column: str | None = None,
+        start: date_type | str | None = None,
+        end: date_type | str | None = None,
     ) -> pd.DataFrame:
         manifest = self.load_active(layer, dataset)
         if manifest is None:
             raise FileNotFoundError(f"No active manifest for {layer}/{dataset}")
-        frames = [pd.read_parquet(path) for path in self.absolute_files(manifest)]
-        combined = pd.concat(frames, ignore_index=True)
+        if (start is not None or end is not None) and not date_column:
+            raise ValueError("date_column is required when start/end filters are used")
+        requested_columns = list(columns) if columns is not None else None
         keys = list(business_key or [])
+        read_columns = requested_columns
+        if requested_columns is not None:
+            read_columns = list(dict.fromkeys([*requested_columns, *keys, "_ingested_at"]))
+        filters: list[tuple[str, str, object]] = []
+        if start is not None:
+            filters.append((str(date_column), ">=", pd.Timestamp(start).date()))
+        if end is not None:
+            filters.append((str(date_column), "<=", pd.Timestamp(end).date()))
+        frames = [
+            pd.read_parquet(path, columns=read_columns, filters=filters or None)
+            for path in self.absolute_files(manifest)
+        ]
+        combined = pd.concat(frames, ignore_index=True)
         if keys:
             missing = set(keys) - set(combined.columns)
             if missing:
                 raise KeyError(f"Business-key columns missing: {sorted(missing)}")
             combined = combined.sort_values("_ingested_at").drop_duplicates(keys, keep="last")
+        if requested_columns is not None:
+            combined = combined[requested_columns]
         return combined.reset_index(drop=True)
 
     def verify_active(self, layer: str, dataset: str) -> list[str]:
@@ -213,3 +236,66 @@ class ManifestStore:
             if sha256_file(path) != record.sha256:
                 errors.append(f"Checksum mismatch: {path}")
         return errors
+
+    def read_active_latest_before(
+        self,
+        layer: str,
+        dataset: str,
+        *,
+        business_key: Iterable[str],
+        partition_by: Iterable[str],
+        date_column: str,
+        before: date_type | str,
+        columns: Iterable[str],
+        predicate: str | None = None,
+    ) -> pd.DataFrame:
+        """Read the latest active row per partition before a date.
+
+        ``predicate`` is an internal SQL condition applied only after active
+        business-key versions are resolved, so an invalid correction cannot
+        reveal an older valid record.
+        """
+        manifest = self.load_active(layer, dataset)
+        if manifest is None:
+            raise FileNotFoundError(f"No active manifest for {layer}/{dataset}")
+        paths = [str(path.resolve()) for path in self.absolute_files(manifest)]
+        keys = tuple(business_key)
+        partitions = tuple(partition_by)
+        selected = tuple(dict.fromkeys([*columns, *keys, *partitions, date_column]))
+
+        def identifier(value: str) -> str:
+            return '"' + value.replace('"', '""') + '"'
+
+        key_sql = ", ".join(identifier(value) for value in keys)
+        partition_sql = ", ".join(identifier(value) for value in partitions)
+        selected_sql = ", ".join(identifier(value) for value in selected)
+        predicate_sql = f"WHERE {predicate}" if predicate else ""
+        query = f"""
+            WITH versioned AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY {key_sql}
+                    ORDER BY CAST(_ingested_at AS TIMESTAMPTZ) DESC, source_run_id DESC
+                ) AS _active_version
+                FROM _active_input
+                WHERE {identifier(date_column)} < ?
+            ),
+            active AS (
+                SELECT * EXCLUDE (_active_version)
+                FROM versioned
+                WHERE _active_version = 1
+            ),
+            eligible AS (
+                SELECT * FROM active {predicate_sql}
+            ),
+            latest AS (
+                SELECT {selected_sql}, ROW_NUMBER() OVER (
+                    PARTITION BY {partition_sql}
+                    ORDER BY {identifier(date_column)} DESC
+                ) AS _latest_version
+                FROM eligible
+            )
+            SELECT {selected_sql} FROM latest WHERE _latest_version = 1
+        """
+        with duckdb.connect() as connection:
+            connection.read_parquet(paths, union_by_name=True).create_view("_active_input")
+            return connection.execute(query, [pd.Timestamp(before).date()]).fetchdf()

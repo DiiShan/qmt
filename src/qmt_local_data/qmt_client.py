@@ -66,6 +66,13 @@ class XtDataClient:
     def download_history_contracts(self, incrementally: bool = True) -> None:
         self.xtdata.download_history_contracts(incrementally=incrementally)
 
+    def download_index_weights(self) -> None:
+        self.xtdata.download_index_weight()
+
+    def index_weights(self, index_code: str) -> dict[str, float]:
+        value = self.xtdata.get_index_weight(index_code) or {}
+        return {str(code): float(weight) for code, weight in value.items()}
+
     def sector_list(self) -> list[str]:
         return [str(value) for value in (self.xtdata.get_sector_list() or [])]
 

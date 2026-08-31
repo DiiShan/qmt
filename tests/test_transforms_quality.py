@@ -6,7 +6,13 @@ import pandas as pd
 import pytest
 
 from qmt_local_data.errors import QualityGateError
-from qmt_local_data.quality import enforce_quality, validate_daily_bars, validate_security_master
+from qmt_local_data.quality import (
+    enforce_quality,
+    validate_aggregate_volatility,
+    validate_daily_bars,
+    validate_security_master,
+    validate_stock_volatility,
+)
 from qmt_local_data.transforms import (
     assign_financial_availability,
     build_historical_universe,
@@ -161,3 +167,39 @@ def test_historical_universe_respects_listing_interval() -> None:
     )
     result = build_historical_universe(master, calendar)
     assert result["trade_date"].tolist() == [date(2020, 1, 2), date(2020, 1, 3)]
+
+
+def test_stock_volatility_quality_blocks_non_null_invalid_return() -> None:
+    frame = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 1, 5)],
+            "stock_code": ["A"],
+            "ret_1d": [0.0],
+            "valid_return_flag": [False],
+            "rv5": [0.0],
+            "rv20": [0.0],
+            "rv60": [0.0],
+            "valid_obs_5": [0],
+            "valid_obs_20": [0],
+            "valid_obs_60": [0],
+        }
+    )
+    report = validate_stock_volatility(frame, (5, 20, 60))
+    with pytest.raises(QualityGateError, match="invalid_return_is_null=1"):
+        enforce_quality(report)
+
+
+def test_market_volatility_quality_blocks_invalid_coverage() -> None:
+    frame = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 1, 5)],
+            "universe_name": ["ALL_A"],
+            "eligible_stock_count": [1],
+            "valid_return_count": [1],
+            "coverage_ratio": [1.1],
+            "quality_status": ["PASS"],
+        }
+    )
+    report = validate_aggregate_volatility(frame, "market_vol_daily")
+    with pytest.raises(QualityGateError, match="bounded_metric_range=1"):
+        enforce_quality(report)

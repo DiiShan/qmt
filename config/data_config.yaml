@@ -25,7 +25,7 @@ ingestion:
 markets:
   stock_sectors: [沪深京A股, 沪深A股, 京市A股]
   stock_suffixes: [.SH, .SZ, .BJ]
-  indexes: [000001.SH, 000016.SH, 000300.SH, 000905.SH, 000852.SH]
+  indexes: [000001.SH, 000002.SH, 000016.SH, 000300.SH, 000905.SH, 000852.SH, 000688.SH, 399006.SZ, 399107.SZ]
 
 futures:
   products: [IF, IH, IC, IM]
@@ -46,3 +46,25 @@ financial:
     - Top10Holder
     - Top10FlowHolder
     - PershareIndex
+
+volatility:
+  annualization_days: 252
+  windows: [5, 10, 20, 60, 120]
+  min_obs_ratio: 0.80
+  percentile_windows: [252, 756]
+  percentile_min_obs_ratio: 0.50
+  shock_threshold: 2.0
+  highvol_percentiles: [0.80, 0.90]
+  ewma_halflife: 20
+  market_min_coverage_ratio: 0.80
+  sector_min_stock_count: 5
+  primary_universe: ALL_A
+  correlation_windows: [20, 60]
+  warmup_safety_days: 20
+  index_universe:
+    000016.SH: 上证50
+    000300.SH: 沪深300
+    000905.SH: 中证500
+    000852.SH: 中证1000
+    000688.SH: 科创50
+    399006.SZ: 创业板

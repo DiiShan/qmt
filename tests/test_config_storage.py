@@ -16,6 +16,19 @@ def test_repository_config_uses_requested_data_root() -> None:
     assert config.storage.target_gb == 25
     assert config.storage.warning_gb == 30
     assert config.storage.hard_limit_gb == 40
+    assert config.volatility.windows == (5, 10, 20, 60, 120)
+    assert config.volatility.correlation_windows == (20, 60)
+    assert config.volatility.warmup_safety_days == 20
+    assert config.volatility.index_names == {
+        "000016.SH": "上证50",
+        "000300.SH": "沪深300",
+        "000905.SH": "中证500",
+        "000852.SH": "中证1000",
+        "000688.SH": "科创50",
+        "399006.SZ": "创业板",
+    }
+    assert set(config.volatility.index_names) <= set(config.markets.indexes)
+    assert {"000002.SH", "399107.SZ"} <= set(config.markets.indexes)
 
 
 def test_invalid_threshold_order_is_rejected(tmp_path: Path) -> None:
@@ -43,3 +56,11 @@ def test_storage_guard_blocks_projected_hard_limit(data_config) -> None:
     assert snapshot.level == StorageLevel.HARD_LIMIT
     with pytest.raises(StorageLimitError):
         guard.enforce(estimated_batch_bytes=10_000)
+
+
+def test_volatility_config_requires_frozen_windows(tmp_path: Path) -> None:
+    source = Path("config/data_config.yaml").read_text(encoding="utf-8")
+    path = tmp_path / "bad-volatility.yaml"
+    path.write_text(source.replace("windows: [5, 10, 20, 60, 120]", "windows: [5, 20, 60]"), encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="must include 5, 10, 20, 60, and 120"):
+        load_config(path)

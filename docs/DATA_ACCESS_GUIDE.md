@@ -14,7 +14,8 @@
 3. 当前 `accepted_for_unbiased_backtest` 是 `false`；
 4. 股票池只能使用 `CURRENT_SURVIVORS`，不得把它改名或解释为 `ALL_A`；
 5. 当前库不包含退市 A 股，不得用于声称“无幸存者偏差”的历史全市场回测；
-6. `daily_bar` 是不复权日线；`corporate_action` 仍是 Raw-only，不能自行假设其字段就是可直接乘用的累计复权因子；
+6. `daily_bar` 是不复权日线；`corporate_action` 仍是 Raw-only，不能直接乘用；已验证的生产
+   因子是 Derived `adjust_factor`，版本为 `xtdata_dr_cumprod_v1`；
 7. 当前 CFFEX 合约库不完整，`future_daily`、`future_main_mapping`、`future_basis_daily`
    暂不得用于正式期货策略回测，详见第 8 节。
 
@@ -97,6 +98,10 @@ financial = data.get_financial_pit(
 | `get_index_daily(codes, start, end)` | 指数日线 | 代码格式如 `000300.SH` |
 | `get_index_bar(...)` | 指数日线别名 | 与 `get_index_daily` 相同 |
 | `get_universe(name, trade_date)` | 指定日股票池 | 当前只允许 `CURRENT_SURVIVORS` |
+| `get_stock_volatility(codes, start, end)` | 个股波动率期限结构 | 只有 validated adjust factor 构建后才存在 |
+| `get_market_volatility(universe_name, start, end)` | 全市场波动状态 | 当前必须显式使用 `CURRENT_SURVIVORS` |
+| `get_index_volatility(codes, start, end)` | 六个宽基指数波动率 | 独立 `index_vol_daily`；不使用股票复权因子 |
+| `get_sector_volatility(...)` | 板块波动率 | 可靠 PIT/snapshot membership 上线前明确报 BLOCKED |
 | `get_financial_pit(codes, as_of, tables)` | 截至某日可知的最新财务记录 | 强制 `available_date <= as_of` |
 | `get_future_contracts(products, active_on)` | 期货合约主表 | 当前仅诊断使用 |
 | `get_future_daily(codes, start, end)` | 期货日线 | 当前仅诊断使用，必须再做生命周期/非空过滤 |
@@ -187,6 +192,9 @@ WHERE u.universe_name = 'CURRENT_SURVIVORS'
 | `historical_universe` | `universe_name, trade_date, stock_code` | 每日股票池 |
 | `future_main_mapping` | `mapping_type, effective_trade_date, product` | 主力合约映射，当前禁用 |
 | `future_basis_daily` | `trade_date, contract_code` | 股指期货基差，当前禁用 |
+| `stock_vol_daily` | `trade_date, stock_code` | 个股复权收益与多期限波动率 |
+| `market_vol_daily` | `trade_date, universe_name` | 全范围及沪深 A 股双口径市场波动率 |
+| `index_vol_daily` | `trade_date, index_code` | 六个宽基指数多期限波动率 |
 
 DuckDB 视图按业务主键选择 `_ingested_at` 最新的活动记录。策略不需要自行对多次更新去重。
 
@@ -249,6 +257,51 @@ IH2608.IF  IH2609.IF  IH2612.IF  IH2703.IF
 当前 universe_scope=CURRENT_UNIVERSE_ONLY，存在幸存者偏差，不得声称无偏全市场回测。
 股票池名称只能使用 CURRENT_SURVIVORS。
 股票价格为不复权日线；corporate_action 尚不可直接用于复权。
+
+### 波动率接口
+
+真实库已于 2026-08-27 完成复权因子验证和 Derived 构建：
+
+```python
+from datetime import date
+from qmt_local_data import ResearchData
+
+data = ResearchData(r"E:\qmt_data\database\qmt.duckdb")
+stock = data.get_stock_volatility(["000001.SZ"], date(2024, 1, 1), date(2024, 12, 31))
+market = data.get_market_volatility(
+    "CURRENT_SURVIVORS", date(2024, 1, 1), date(2024, 12, 31)
+)
+```
+
+不得在当前库省略 market 的 universe 参数；默认 `ALL_A` 会因 scope 不一致而明确失败。
+需要沪深 A 股独立口径时使用 `SH_SZ_CURRENT_SURVIVORS`；它仍继承当前存续股票的
+幸存者偏差，不等于完整历史沪深 A 股。
+
+宽基指数示例：
+
+```python
+indexes = data.get_index_volatility(
+    ["000016.SH", "000300.SH", "000905.SH", "000852.SH", "000688.SH", "399006.SZ"],
+    date(2024, 1, 1),
+    date(2024, 12, 31),
+)
+```
+`sector_vol_daily` 当前没有 active view，不能用当前板块成分回填历史。
+
+### 证券清单和成分快照
+
+```python
+from qmt_local_data.research import ResearchData
+
+data = ResearchData(r"E:\qmt_data\database\qmt.duckdb")
+current = data.get_current_stock_list()
+delisted = data.get_delisted_stock_list()
+hs300 = data.get_index_membership(["000300.SH"])
+sw1 = data.get_sector_membership("SW1")
+```
+
+不传 `as_of` 时，快照 API 返回数据库内最新采集日。请求早于首个采集日的成分历史不会自动
+使用最新成员替代；2026-08-30 以前的指数/行业历史成分仍属于数据源缺口。
 财务数据必须通过 financial_pit 且满足 available_date <= 决策日。
 期货库当前不完整，禁止使用 future_daily/future_main_mapping/future_basis_daily 形成正式策略结论。
 所有 SQL 显式列字段并使用参数绑定；不要直接扫描 raw/processed/derived 的全部 run 目录。

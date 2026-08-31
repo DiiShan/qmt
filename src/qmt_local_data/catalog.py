@@ -23,6 +23,20 @@ DEFAULT_VIEWS = (
     ViewSpec("index_daily", "processed", "index_daily", ("trade_date", "index_code")),
     ViewSpec("future_daily", "processed", "future_daily", ("trade_date", "contract_code")),
     ViewSpec("security_master", "processed", "security_master", ("stock_code",)),
+    ViewSpec("current_stock_list", "processed", "current_stock_list", ("as_of_date", "stock_code")),
+    ViewSpec("delisted_stock_list", "processed", "delisted_stock_list", ("stock_code",)),
+    ViewSpec(
+        "index_membership_snapshot_daily",
+        "processed",
+        "index_membership_snapshot_daily",
+        ("snapshot_date", "index_code", "stock_code"),
+    ),
+    ViewSpec(
+        "sector_membership_snapshot_daily",
+        "processed",
+        "sector_membership_snapshot_daily",
+        ("snapshot_date", "sector_type", "sector_code", "stock_code"),
+    ),
     ViewSpec("future_contracts", "processed", "future_contract_master", ("contract_code",)),
     ViewSpec("trade_calendar", "processed", "trade_calendar", ("market", "trade_date")),
     ViewSpec(
@@ -45,6 +59,9 @@ DEFAULT_VIEWS = (
         ("mapping_type", "effective_trade_date", "product"),
     ),
     ViewSpec("future_basis_daily", "derived", "future_basis_daily", ("trade_date", "contract_code")),
+    ViewSpec("stock_vol_daily", "derived", "stock_vol_daily", ("trade_date", "stock_code")),
+    ViewSpec("market_vol_daily", "derived", "market_vol_daily", ("trade_date", "universe_name")),
+    ViewSpec("index_vol_daily", "derived", "index_vol_daily", ("trade_date", "index_code")),
 )
 
 

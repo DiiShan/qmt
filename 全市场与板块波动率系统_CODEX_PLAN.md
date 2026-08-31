@@ -1341,3 +1341,35 @@ Stock → Sector → Market
 V1 的成功标准不是“指标数量多”，而是：
 
 > 指标定义无歧义、数据无未来函数、历史可重建、每日可增量、全市场与板块可以在同一口径下比较，并为后续 Market Regime / 策略条件分析提供可靠底层状态变量。
+
+---
+
+# 23. 用户批准的 V1 增量需求（2026-08-30）
+
+以下内容由用户在原冻结规格之后明确新增，不修改原有指标算法、PIT 原则、5/20/60 期限结构
+或质量标准：
+
+1. `market_vol_daily` 和同口径板块聚合新增 `median_stock_rv5`、
+   `median_stock_rv60`；原 `median_stock_rv20` 及其历史分位保持不变。
+2. `market_vol_daily` 在原市场口径之外，同步提供独立沪深 A 股口径。为避免掩盖股票池
+   完整性，名称固定为 `SH_SZ_CURRENT_SURVIVORS`（当前存续库）和
+   `SH_SZ_ALL_A`（仅 `READY_FULL_HISTORY` 可用）。
+3. 新增独立 Derived 数据集 `index_vol_daily`，业务主键为
+   `trade_date, index_code`，覆盖上证50 `000016.SH`、沪深300 `000300.SH`、
+   中证500 `000905.SH`、中证1000 `000852.SH`、科创50 `000688.SH`、
+   创业板 `399006.SZ`。
+4. `index_vol_daily` 直接使用官方指数收盘点位计算简单收益，沿用股票层的
+   5/10/20/60/120 RV、80% `min_obs`、`ddof=1`、`sqrt(252)`、RV20 prior-only
+   252/756 分位、上下行 RV 和 shock 定义；指数点位不应用股票复权因子。
+## 24. 用户批准的参考数据增量（2026-08-30）
+
+用户要求把历史指数成分、历史行业成分、退市个股、当前股票和上市日期过滤纳入数据库。
+实机验证结果必须作为实施边界：当前 XtData 虽接受 `real_timetag`，但 2015/2020/2024/2026
+返回完全相同的行业和全市场成员；下载行业历史包无进度且不能完成。六个指数只提供当前权重，
+没有日期参数。因此不得把当前成员倒填为历史 PIT。
+
+批准的最小安全实施为：交易所官方当前/退市清单进入 `current_stock_list`、
+`delisted_stock_list` 和统一 `security_master`；QMT 当前指数权重和申万一级成员分别进入
+`index_membership_snapshot_daily`、`sector_membership_snapshot_daily`，质量标记为
+`OBSERVED_SNAPSHOT_ONLY`，从首次采集日向后积累。历史回填继续保持
+`BLOCKED_SOURCE_UNAVAILABLE`，不改变原 Plan 的 PIT 原则和 sector 发布门禁。

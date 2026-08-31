@@ -139,9 +139,57 @@ def apply_adjustment_factor(
     required = {"trade_date", "stock_code", "factor"}
     if missing := required - set(factors.columns):
         raise KeyError(f"adjust_factor missing: {sorted(missing)}")
-    result = daily.merge(factors[list(required)], on=["trade_date", "stock_code"], how="left")
-    result["factor"] = result.groupby("stock_code")["factor"].ffill()
+    left = daily.copy()
+    right = factors[list(required)].copy()
+    left["trade_date"] = pd.to_datetime(left["trade_date"], errors="coerce")
+    right["trade_date"] = pd.to_datetime(right["trade_date"], errors="coerce")
+    left = left.sort_values(["trade_date", "stock_code"]).reset_index(drop=True)
+    right = right.sort_values(["trade_date", "stock_code"]).drop_duplicates(
+        ["trade_date", "stock_code"], keep="last"
+    )
+    result = pd.merge_asof(
+        left,
+        right,
+        on="trade_date",
+        by="stock_code",
+        direction="backward",
+        allow_exact_matches=True,
+    )
+    result = result.sort_values(["stock_code", "trade_date"]).reset_index(drop=True)
+    result.loc[result["factor"] <= 0, "factor"] = np.nan
     for column in price_columns:
         if column in result.columns:
             result[f"{column}_adjusted"] = result[column] * result["factor"]
+    result["trade_date"] = result["trade_date"].dt.date
     return result
+
+
+def audit_adjustment_factor_continuity(
+    daily: pd.DataFrame,
+    factors: pd.DataFrame,
+) -> pd.DataFrame:
+    """Produce event-date evidence; callers decide whether factor semantics are validated."""
+    adjusted = apply_adjustment_factor(daily, factors, price_columns=("close",))
+    adjusted["raw_ret_1d"] = adjusted.groupby("stock_code", sort=False)["close"].pct_change(
+        fill_method=None
+    )
+    adjusted["adjusted_ret_1d"] = adjusted.groupby("stock_code", sort=False)[
+        "close_adjusted"
+    ].pct_change(fill_method=None)
+    event_keys = factors[["trade_date", "stock_code"]].drop_duplicates()
+    return event_keys.merge(
+        adjusted[
+            [
+                "trade_date",
+                "stock_code",
+                "close",
+                "factor",
+                "close_adjusted",
+                "raw_ret_1d",
+                "adjusted_ret_1d",
+            ]
+        ],
+        on=["trade_date", "stock_code"],
+        how="left",
+        validate="one_to_one",
+    ).sort_values(["stock_code", "trade_date"]).reset_index(drop=True)

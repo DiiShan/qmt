@@ -66,6 +66,13 @@ python scripts/update_daily.py --config config/data_config.yaml `
   --start 2026-08-01 --end 2026-08-23 --download
 ```
 
+指数行情使用同一命令的独立资产参数；未传 `--codes` 时读取 `markets.indexes`：
+
+```powershell
+python scripts/update_daily.py --config config/data_config.yaml --asset index `
+  --start 2026-08-01 --end 2026-08-23 --download
+```
+
 上游缺行不会自动解释为删除。重复业务主键由 DuckDB view 按 `_ingested_at` 和 `source_run_id` 选择最新已发布版本。
 
 ## 4. 验证与容量
@@ -74,6 +81,86 @@ python scripts/update_daily.py --config config/data_config.yaml `
 python scripts/validate_database.py --config config/data_config.yaml
 python scripts/storage_audit.py --config config/data_config.yaml
 ```
+
+## 4.1 波动率 Derived
+
+波动率真实构建要求 active `adjust_factor` manifest 明确标记
+`PRODUCTION_READY_VALIDATED_FACTOR`，带 `factor_version`、至少三个公司行动 PASS 案例和一个
+无事件区间 PASS 案例。先生成只读审计报告：
+
+```powershell
+qmt-local-data build-adjust-factor --config config/data_config.yaml `
+  --audit-output reports/adjust_factor_audit.json
+```
+
+审计 PASS 后才允许显式发布：
+
+```powershell
+qmt-local-data build-adjust-factor --config config/data_config.yaml `
+  --factor-version xtdata_dr_cumprod_v1 `
+  --audit-output reports/adjust_factor_audit.json --publish
+```
+
+该规则来自 XtData 官方等比后复权示例：每个交易日因子等于当日及以前事件 `dr` 的累计乘积。
+2026-08-27 真实审计与发布记录见 `reports/adjust_factor_audit.json`。未经审计的 Raw-only 公司
+行动状态会让波动率命令返回 2，且不会发布任何 volatility active manifest。
+
+首次构建或仅追加新日期：
+
+```powershell
+qmt-local-data build-volatility --config config/data_config.yaml `
+  --start 2024-01-01 --end 2026-08-27
+```
+
+该命令同时发布 `stock_vol_daily`、双口径 `market_vol_daily` 和 `index_vol_daily`。双口径为
+当前/full scope 对应的全范围股票池，以及独立沪深 A 股子集。
+
+指数波动率也可以独立构建；它不依赖股票复权因子：
+
+```powershell
+qmt-local-data build-index-volatility --config config/data_config.yaml `
+  --start 2011-01-04 --end <最新交易日>
+```
+
+仅重建市场聚合（例如新增市场口径或横截面字段）时，可复用 active `stock_vol_daily`：
+
+```powershell
+qmt-local-data build-market-volatility --config config/data_config.yaml `
+  --rebuild-from 2011-01-04 --end <最新交易日>
+```
+
+修订历史行情、universe 或复权因子后必须显式重建尾部：
+
+```powershell
+qmt-local-data build-volatility --config config/data_config.yaml `
+  --rebuild-from 2024-01-01 --end 2026-08-27
+```
+
+普通 build 与 active 日期重叠时会拒绝执行。`--rebuild-from` 保留变更日前缀、重算其后全部
+rolling/percentile/EWMA 影响并 replace active run；旧 immutable runs 不删除。
+
+当前 `READY_CURRENT_UNIVERSE_ONLY` 生成 `CURRENT_SURVIVORS` 和它的沪深子集
+`SH_SZ_CURRENT_SURVIVORS`。在退市证券闭环前禁止解释为 `ALL_A/SH_SZ_ALL_A`。
+sector membership 未验证前不发布 `sector_vol_daily`。
+
+## 更新证券清单和成分快照
+
+```powershell
+qmt-local-data update-reference-data --config config/data_config.yaml `
+  --as-of 2026-08-30
+
+qmt-local-data build-universe --config config/data_config.yaml
+
+qmt-local-data build-volatility --config config/data_config.yaml `
+  --rebuild-from 2011-01-04 --end 2026-08-21
+
+python scripts/validate_reference_data.py --config config/data_config.yaml
+qmt-local-data validate --config config/data_config.yaml
+```
+
+`update-reference-data` 从上交所、深交所官方接口更新当前/退市清单，从 MiniQMT 更新六个指数
+权重和申万一级行业快照。对同一 `as_of` 重跑采用 replace 语义，允许正确删除来源修订记录。
+历史指数/行业成分不能由当前快照倒填；应每天运行该命令，从首次采集日向后积累 PIT 快照。
 
 容量阈值：目标 25 GiB、警告 30 GiB、硬停止 40 GiB。程序不自动删除 Raw、Processed 或 QMT cache。
 容量预检由统一 manifest 发布路径执行，因此行情、财务、历史 universe 和 Derived 都不能

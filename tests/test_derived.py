@@ -5,7 +5,12 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from qmt_local_data.derived import build_main_contract_mapping, calculate_future_basis
+from qmt_local_data.derived import (
+    apply_adjustment_factor,
+    audit_adjustment_factor_continuity,
+    build_main_contract_mapping,
+    calculate_future_basis,
+)
 
 
 def _fixtures():
@@ -59,3 +64,40 @@ def test_basis_uses_calendar_day_simple_annualization() -> None:
     assert row["annualized_basis"] == pytest.approx(0.0025 * 365 / 29)
     assert bool(row["is_main_contract_eod"])
     assert not bool(row["is_main_contract_next_trade_day"])
+
+
+def test_validated_factor_removes_mechanical_ex_rights_drop() -> None:
+    daily = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 6, 1), date(2026, 6, 2)],
+            "stock_code": ["A", "A"],
+            "close": [10.0, 5.0],
+        }
+    )
+    factors = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 6, 1), date(2026, 6, 2)],
+            "stock_code": ["A", "A"],
+            "factor": [1.0, 2.0],
+        }
+    )
+    adjusted = apply_adjustment_factor(daily, factors, price_columns=("close",))
+    assert adjusted["close_adjusted"].tolist() == [10.0, 10.0]
+    audit = audit_adjustment_factor_continuity(daily, factors)
+    assert audit.iloc[-1]["raw_ret_1d"] == pytest.approx(-0.5)
+    assert audit.iloc[-1]["adjusted_ret_1d"] == pytest.approx(0.0)
+
+
+def test_factor_is_carried_from_latest_prior_event() -> None:
+    daily = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 6, 2), date(2026, 6, 3)],
+            "stock_code": ["A", "A"],
+            "close": [5.0, 5.5],
+        }
+    )
+    factors = pd.DataFrame(
+        {"trade_date": [date(2026, 6, 1)], "stock_code": ["A"], "factor": [2.0]}
+    )
+    result = apply_adjustment_factor(daily, factors, price_columns=("close",))
+    assert result["close_adjusted"].tolist() == [10.0, 11.0]

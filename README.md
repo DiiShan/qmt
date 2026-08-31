@@ -31,6 +31,15 @@ Factor / Strategy / Backtest / Risk
 
 执行级、经过独立 Review 收敛的计划见 [`本地数据库构建计划_codex.md`](本地数据库构建计划_codex.md)。数据库 v1 代码位于 `src/qmt_local_data/`，默认数据根目录为 `E:\qmt_data`；可在本地配置中修改，但源码不硬编码其他机器路径。
 
+全市场与板块波动率 V1 的冻结规格见
+[`全市场与板块波动率系统_CODEX_PLAN.md`](全市场与板块波动率系统_CODEX_PLAN.md)。代码已提供纯计算、
+质量门、Manifest/Pipeline、DuckDB 和 Research API 接口。2026-08-27 已按 XtData 官方累计
+`dr` 规则完成真实复权审计并发布 `adjust_factor`、`stock_vol_daily`、`market_vol_daily`；当前
+范围仍是 `CURRENT_SURVIVORS`，且 sector 历史成员未验证时不会发布板块数据。
+
+2026-08-30 增量需求另提供 `SH_SZ_CURRENT_SURVIVORS` 沪深 A 股口径，并新增
+`index_vol_daily`（上证50、沪深300、中证500/1000、科创50、创业板）。
+
 第一阶段优先建设 **全 A 股日线 + 财务八表 + 复权/状态/交易日历 + 主要指数 + CFFEX 股指期货实际合约 + 本地 DuckDB/Parquet 数据底座**，分钟、tick、期权和实时能力后置到策略确有需要时再扩展。
 
 ## 本地数据库 v1 首轮实现
@@ -92,6 +101,24 @@ python scripts/init_database.py --config config/data_config.yaml `
 无偏历史全市场回测库。后续补齐退市证券后通过新 manifest run 升级，无需删除已有 Raw。
 
 完整命令、失败恢复与安全边界见 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)，字段契约见 [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md)。
+
+波动率 Derived 数据构建完成后，可启动只读可视化界面：
+
+```powershell
+python -m pip install -e ".[dashboard]"
+qmt-local-data dashboard --config config/data_config.yaml
+```
+
+更新证券生命周期和成分快照：
+
+```powershell
+qmt-local-data update-reference-data --config config/data_config.yaml --as-of 2026-08-30
+qmt-local-data build-universe --config config/data_config.yaml
+python scripts/validate_reference_data.py --config config/data_config.yaml
+```
+
+浏览器访问 `http://127.0.0.1:8501`。全市场和板块页面的指标说明、门禁状态、操作步骤与
+故障排查见 [`docs/VOLATILITY_DASHBOARD_USER_MANUAL.md`](docs/VOLATILITY_DASHBOARD_USER_MANUAL.md)。
 
 ## 当前 QMT 数据权限基线
 

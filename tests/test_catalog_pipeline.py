@@ -134,6 +134,10 @@ def test_current_universe_is_published_with_explicit_scope(data_config) -> None:
     assert manifest.metadata["universe_scope"] == "CURRENT_UNIVERSE_ONLY"
     assert manifest.metadata["accepted_for_unbiased_backtest"] is False
     assert frame["universe_name"].unique().tolist() == ["CURRENT_SURVIVORS"]
+    master_run = builder.store.load_active("processed", "security_master").run_id
+    calendar_run = builder.store.load_active("processed", "trade_calendar").run_id
+    assert master_run in manifest.input_runs
+    assert calendar_run in manifest.input_runs
 
 
 def test_update_inherits_current_universe_scope_from_database_status(data_config) -> None:

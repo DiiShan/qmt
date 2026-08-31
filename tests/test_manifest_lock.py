@@ -34,6 +34,49 @@ def test_replace_manifest_drops_prior_components(data_config) -> None:
     assert len(current.files) == 1
 
 
+def test_manifest_range_read_and_latest_valid_anchor(data_config) -> None:
+    store = ManifestStore(data_config.data_root)
+    frame = pd.DataFrame(
+        {
+            "trade_date": [
+                pd.Timestamp("2026-01-02").date(),
+                pd.Timestamp("2026-01-03").date(),
+                pd.Timestamp("2026-01-04").date(),
+            ],
+            "stock_code": ["A", "A", "A"],
+            "close": [10.0, 10.0, 11.0],
+            "suspend_flag": [0, 1, 0],
+            "volume": [100, 0, 100],
+        }
+    )
+    store.publish_frame("processed", "stock_daily", frame, "1.0", date_column="trade_date")
+    ranged = store.read_active_frame(
+        "processed",
+        "stock_daily",
+        ["trade_date", "stock_code"],
+        columns=["trade_date", "stock_code", "close"],
+        date_column="trade_date",
+        start=pd.Timestamp("2026-01-03").date(),
+        end=pd.Timestamp("2026-01-04").date(),
+    )
+    assert ranged["trade_date"].tolist() == [
+        pd.Timestamp("2026-01-03").date(),
+        pd.Timestamp("2026-01-04").date(),
+    ]
+    anchor = store.read_active_latest_before(
+        "processed",
+        "stock_daily",
+        business_key=["trade_date", "stock_code"],
+        partition_by=["stock_code"],
+        date_column="trade_date",
+        before=pd.Timestamp("2026-01-04").date(),
+        columns=["trade_date", "stock_code", "close", "suspend_flag", "volume"],
+        predicate="suspend_flag = 0 AND volume > 0 AND close > 0",
+    )
+    assert anchor.iloc[0]["close"] == 10.0
+    assert pd.Timestamp(anchor.iloc[0]["trade_date"]).date() == pd.Timestamp("2026-01-02").date()
+
+
 def test_database_status_marks_current_universe_as_not_accepted(data_config) -> None:
     from qmt_local_data.pipeline import DatabaseBuilder
 
